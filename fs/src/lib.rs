@@ -15,7 +15,9 @@ mod util;
 
 pub mod block {
     pub const SIZE: usize = 4096;
+    pub const LOG_SIZE: usize = 12;
     pub const BITS: usize = SIZE * 8;
+    pub const MASK: usize = SIZE - 1;
 
     pub type DataBlock = [u8; SIZE];
     pub type BitmapBlock = [u64; SIZE / 64];

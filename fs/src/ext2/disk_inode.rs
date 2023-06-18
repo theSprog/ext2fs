@@ -1,5 +1,11 @@
 use bitflags::bitflags;
 
+use crate::{
+    block::{self, DataBlock},
+    block_device,
+    vfs::meta::*,
+};
+
 #[repr(C)]
 #[derive(Clone)]
 pub struct Ext2Inode {
@@ -56,6 +62,98 @@ pub struct Ext2Inode {
     pub _os_specific_2: [u8; 12],
 }
 
+type IndirectBlock = [u32; Ext2Inode::INDIRECT_COUNT];
+
+impl Ext2Inode {
+    pub const DIRECT_COUNT: usize = 12;
+    pub const INDIRECT_COUNT: usize = block::SIZE / 4;
+    pub const INDIRECT_BOUND: usize = Self::DIRECT_COUNT + Self::INDIRECT_COUNT;
+    pub const DOUBLE_COUNT: usize = Self::INDIRECT_COUNT * Self::INDIRECT_COUNT;
+    pub const DOUBLE_BOUND: usize = Self::INDIRECT_BOUND + Self::DOUBLE_COUNT;
+
+    pub fn init() {
+        todo!()
+    }
+
+    pub fn size(&self) -> usize {
+        if self.filetype().is_file() {
+            assert_eq!(self.size_high, 0);
+        }
+        self.size_low as usize
+    }
+
+    pub fn filetype(&self) -> VfsFileType {
+        self.type_perm.filetype()
+    }
+
+    pub fn permissions(&self) -> VfsPermissions {
+        self.type_perm.permissions()
+    }
+
+    fn block_nth(&self, inner_idx: u32) -> u32 {
+        let inner_idx = inner_idx as usize;
+        if inner_idx < Self::DIRECT_COUNT {
+            self.direct_pointer[inner_idx]
+        } else if inner_idx < Self::INDIRECT_BOUND {
+            block_device::read(
+                self.indirect_pointer as usize,
+                0,
+                |indirect_block: &IndirectBlock| indirect_block[inner_idx - Self::DIRECT_COUNT],
+            )
+        } else if inner_idx < Self::DOUBLE_BOUND {
+            let last = inner_idx - Self::INDIRECT_BOUND;
+            let indirect = block_device::read(
+                self.doubly_indirect as usize,
+                0,
+                |indirect2: &IndirectBlock| indirect2[last / Self::INDIRECT_COUNT],
+            );
+
+            block_device::read(indirect as usize, 0, |indirect1: &IndirectBlock| {
+                indirect1[last % Self::INDIRECT_COUNT]
+            })
+        } else {
+            panic!("where is the large block from : inner_id = {}", inner_idx);
+        }
+    }
+
+    pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> usize {
+        let block_size = block::SIZE;
+        let mut start = offset;
+        let end = (offset + buf.len()).min(self.size());
+        if start >= end {
+            return 0;
+        }
+        let mut start_block = start / block_size;
+        let mut read_size = 0usize;
+        loop {
+            // calculate end of current block
+            let mut end_current_block = (start / block_size + 1) * block_size;
+            end_current_block = end_current_block.min(end);
+            // read and update read size
+            let block_read_size = end_current_block - start;
+            let dst = &mut buf[read_size..read_size + block_read_size];
+
+            block_device::read(
+                self.block_nth(start_block as u32) as usize,
+                0,
+                |data_block: &DataBlock| {
+                    let src = &data_block[start % block_size..start % block_size + block_read_size];
+                    dst.copy_from_slice(src);
+                },
+            );
+
+            read_size += block_read_size;
+            // move to next block
+            if end_current_block == end {
+                break;
+            }
+            start_block += 1;
+            start = end_current_block;
+        }
+        read_size
+    }
+}
+
 bitflags! {
     #[derive(Clone)]
     pub struct TypePerm: u16 {
@@ -97,6 +195,62 @@ bitflags! {
         const SET_GID = 0x400;
         /// Set user ID
         const SET_UID = 0x800;
+    }
+}
+
+impl TypePerm {
+    pub fn filetype(&self) -> VfsFileType {
+        if self.contains(Self::FIFO) {
+            VfsFileType::FIFO
+        } else if self.contains(Self::CHAR_DEVICE) {
+            VfsFileType::CharDev
+        } else if self.contains(Self::DIRECTORY) {
+            VfsFileType::Directory
+        } else if self.contains(Self::BLOCK_DEVICE) {
+            VfsFileType::BlockDev
+        } else if self.contains(Self::FILE) {
+            VfsFileType::RegularFile
+        } else if self.contains(Self::SYMLINK) {
+            VfsFileType::SymbolicLink
+        } else if self.contains(Self::SOCKET) {
+            VfsFileType::Socket
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn permissions(&self) -> VfsPermissions {
+        let mut user = 0u8;
+        let mut group = 0u8;
+        let mut other = 0u8;
+        if self.contains(Self::U_READ) {
+            user |= 0b100;
+        }
+        if self.contains(Self::U_WRITE) {
+            user |= 0b010;
+        }
+        if self.contains(Self::U_EXEC) {
+            user |= 0b001;
+        }
+        if self.contains(Self::G_READ) {
+            group |= 0b100;
+        }
+        if self.contains(Self::G_WRITE) {
+            group |= 0b010;
+        }
+        if self.contains(Self::G_EXEC) {
+            group |= 0b001;
+        }
+        if self.contains(Self::O_READ) {
+            other |= 0b100;
+        }
+        if self.contains(Self::O_WRITE) {
+            other |= 0b010;
+        }
+        if self.contains(Self::O_EXEC) {
+            other |= 0b001;
+        }
+        VfsPermissions::new(user.into(), group.into(), other.into())
     }
 }
 

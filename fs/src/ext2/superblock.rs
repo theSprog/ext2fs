@@ -3,7 +3,7 @@ use bitflags::bitflags;
 use core::fmt::{self, Debug};
 
 use crate::{
-    block,
+    block, ceil_index,
     ext2::disk_inode::Ext2Inode,
     time::{LocalTime, UTC},
     util,
@@ -218,13 +218,9 @@ impl Superblock {
     }
 
     // 统计有多少 group
-    pub fn block_group_count(&self) -> u32 {
-        let blocks_mod = self.blocks_count % self.blocks_per_group;
-        let inodes_mod = self.inodes_count % self.inodes_per_group;
-        let blocks_inc = if blocks_mod == 0 { 0 } else { 1 };
-        let inodes_inc = if inodes_mod == 0 { 0 } else { 1 };
-        let by_blocks = self.blocks_count / self.blocks_per_group + blocks_inc;
-        let by_inodes = self.inodes_count / self.inodes_per_group + inodes_inc;
+    pub fn blockgroup_count(&self) -> u32 {
+        let by_blocks = ceil_index!(self.blocks_count, self.blocks_per_group);
+        let by_inodes = ceil_index!(self.inodes_count, self.inodes_per_group);
         assert_eq!(by_blocks, by_inodes);
         by_blocks
     }

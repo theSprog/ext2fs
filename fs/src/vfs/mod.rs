@@ -2,10 +2,10 @@ mod dir;
 mod filesystem;
 mod inode;
 mod io;
-mod meta;
 mod path;
 
 pub mod error;
+pub mod meta;
 
 use core::fmt::Display;
 
@@ -18,7 +18,6 @@ use alloc::{
 pub use dir::VfsDirEntry;
 pub use filesystem::FileSystem;
 pub use inode::VfsInode;
-pub use meta::VfsMetadata;
 pub use path::VfsPath;
 
 use self::error::{VfsErrorKind, VfsResult};
@@ -44,7 +43,7 @@ impl VFS {
             return Err(VfsErrorKind::InvalidPath(path.to_string()).into());
         }
 
-        Ok(VfsPath::from(path.trim_start_matches('/')))
+        Ok(VfsPath::from(path))
     }
 
     pub fn read_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<Vec<Box<dyn VfsDirEntry>>> {

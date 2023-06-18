@@ -3,7 +3,7 @@ use core::any::Any;
 use alloc::{collections::BTreeMap, sync::Arc};
 use spin::Mutex;
 
-use crate::block;
+use crate::{block, cast, cast_mut};
 
 pub trait BlockDevice: Send + Sync + Any {
     fn read_block(&self, block_id: usize, buf: &mut [u8]);
@@ -43,7 +43,7 @@ impl BlockCache {
         let type_size = core::mem::size_of::<T>();
         assert!(offset + type_size <= block::SIZE);
         let addr = self.addr_of_offset(offset);
-        &*(addr as *const T)
+        cast!(addr, T)
     }
 
     pub unsafe fn get_mut<T>(&mut self, offset: usize) -> &mut T
@@ -54,7 +54,7 @@ impl BlockCache {
         assert!(offset + type_size <= block::SIZE);
         self.modified = true;
         let addr = self.addr_of_offset(offset);
-        &mut *(addr as *mut T)
+        cast_mut!(addr, T)
     }
 
     pub fn sync(&mut self) {
@@ -132,4 +132,8 @@ pub fn read<T, V>(block_id: usize, offset: usize, operation: impl FnOnce(&T) -> 
 
 pub fn modify<T, V>(block_id: usize, offset: usize, operation: impl FnOnce(&mut T) -> V) -> V {
     block_nth(block_id).lock().modify(offset, operation)
+}
+
+pub fn sync(block_id: usize) {
+    block_nth(block_id).lock().sync()
 }

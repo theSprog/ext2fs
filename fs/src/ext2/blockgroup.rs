@@ -1,12 +1,14 @@
 use core::fmt::{self, Debug};
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 
-use crate::{block::DataBlock, block_device};
+use crate::{block::DataBlock, block_device, cast};
+
+use super::{disk_inode::Ext2Inode, inode::Inode, layout::Ext2Layout, Address};
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct BlockGroupDescriptor {
+pub struct Ext2BlockGroupDesc {
     /// Block address of block usage bitmap
     pub block_bitmap_addr: u32,
     /// Block address of inode usage bitmap
@@ -22,23 +24,36 @@ pub struct BlockGroupDescriptor {
     #[doc(hidden)]
     _reserved: [u8; 14],
 }
-impl BlockGroupDescriptor {
+impl Ext2BlockGroupDesc {
     pub(crate) fn find(count: u32) -> Vec<Self> {
         block_device::read(1, 0, |data: &DataBlock| {
             let mut vec = Vec::new();
             let mut offset = 0;
             for i in 0..count {
                 let current = &data[offset..];
-                let desc = unsafe { &*(current.as_ptr() as *const BlockGroupDescriptor) };
+                let desc = cast!(current.as_ptr(), Ext2BlockGroupDesc);
                 vec.push(desc.clone());
-                offset += core::mem::size_of::<BlockGroupDescriptor>();
+                offset += core::mem::size_of::<Ext2BlockGroupDesc>();
             }
             vec
         })
     }
+
+    pub fn get_inode(
+        &self,
+        inode_id: usize,
+        inode_innner_idx: usize,
+        layout: Arc<Ext2Layout>,
+    ) -> Inode {
+        let addr = Address::new(
+            self.inode_table_block as usize,
+            (inode_innner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
+        );
+        Inode::new(inode_id, addr, layout)
+    }
 }
 
-impl Debug for BlockGroupDescriptor {
+impl Debug for Ext2BlockGroupDesc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BlockGroupDescriptor")
             .field("block_bitmap_addr", &self.block_bitmap_addr)

@@ -128,7 +128,12 @@ impl fmt::Display for VfsErrorKind {
 #[derive(Debug)]
 pub struct IOError {
     kind: IOErrorKind,
-    path: String,
+}
+
+impl IOError {
+    pub fn new(kind: IOErrorKind) -> Self {
+        Self { kind }
+    }
 }
 
 #[derive(Debug)]

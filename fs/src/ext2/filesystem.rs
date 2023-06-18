@@ -6,23 +6,24 @@ use spin::Mutex;
 use crate::{
     block_device::{self, BlockDevice},
     ext2::{allocator, superblock},
-    vfs::{error::VfsResult, VfsDirEntry, VfsInode, VfsMetadata, VfsPath},
 };
 
-use super::{allocator::Ext2Allocator, blockgroup::BlockGroupDescriptor, superblock::Superblock};
+use crate::vfs::{error::VfsResult, meta::*, VfsDirEntry, VfsInode, VfsPath};
+
+use super::{
+    allocator::Ext2Allocator, blockgroup::Ext2BlockGroupDesc, inode::Inode, layout::Ext2Layout,
+    superblock::Superblock,
+};
 
 #[derive(Debug)]
 pub struct Ext2FileSystem {
-    superblock: Arc<Mutex<Superblock>>,
-    blockgroups: Arc<Vec<Mutex<BlockGroupDescriptor>>>,
-
-    allocator: Ext2Allocator,
+    layout: Arc<Ext2Layout>,
+    allocator: Arc<Ext2Allocator>,
 }
 
 impl Display for Ext2FileSystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{:#?}", self.superblock)?;
-        writeln!(f, "{:#?}", self.blockgroups)
+        writeln!(f, "{:#?}", self.layout)
     }
 }
 
@@ -34,32 +35,28 @@ impl Ext2FileSystem {
             sb.clone()
         });
 
-        let block_group_count = superblock.block_group_count();
-        let blockgroups = BlockGroupDescriptor::find(block_group_count);
+        let blockgroup_count = superblock.blockgroup_count();
+        let blockgroups = Ext2BlockGroupDesc::find(blockgroup_count);
 
-        let superblock = Arc::new(Mutex::new(superblock));
-        let blockgroups = Arc::new(
-            blockgroups
-                .into_iter()
-                .map(|bg| Mutex::new(bg))
-                .collect::<Vec<_>>(),
-        );
+        let layout = Arc::new(Ext2Layout::new(superblock, blockgroups));
+        let allocator = Arc::new(Ext2Allocator::new(layout.clone()));
 
-        let allocator = Ext2Allocator::new(superblock.clone(), blockgroups.clone());
+        Self { layout, allocator }
+    }
 
-        Self {
-            superblock,
-            blockgroups,
-            allocator,
-        }
+    fn root_inode(&self) -> Inode {
+        self.layout.inode_nth(2, self.layout.clone()).with_parent(2)
     }
 }
 
 use crate::vfs::FileSystem;
 impl FileSystem for Ext2FileSystem {
     fn read_dir(&self, path: VfsPath) -> VfsResult<Vec<Box<dyn VfsDirEntry>>> {
-        panic!("{:?}", path);
-        todo!()
+        let root_inode = self.root_inode();
+        let target = root_inode.walk(&path)?;
+        target
+            .read_dir()
+            .map_err(|err| err.with_path(path.to_string()))
     }
 
     fn exists(&self, path: VfsPath) -> VfsResult<bool> {
