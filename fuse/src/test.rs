@@ -1,7 +1,8 @@
 use std::{fs::OpenOptions, sync::Arc};
 
 use fs::{
-    ext2::{Address, Ext2FileSystem},
+    block,
+    ext2::Ext2FileSystem,
     time::LocalTime,
     vfs::{VfsPath, VFS},
 };
@@ -24,7 +25,7 @@ fn test_vfs() {
 #[test]
 fn test_read_dir() {
     let vfs = gen_vfs();
-    let dir = vfs.read_dir("//cycle/new_dir2").unwrap();
+    let dir = vfs.read_dir("/new_dir/cycle").unwrap();
     println!(
         "{:>5} {:>11} {:>5} {:>8} {:>5} {:>5} {:>19} {}",
         "Inode", "Permissions", "Links", "Size", "UID", "GID", "Modified Time", "Name"
@@ -51,6 +52,69 @@ fn test_read_dir() {
             name
         );
     }
+}
+
+#[test]
+fn test_exists() {
+    let vfs = gen_vfs();
+    assert_eq!(vfs.exists("/none").unwrap(), false);
+    assert_eq!(vfs.exists("/new_file.c").unwrap(), true);
+    assert_eq!(vfs.exists("/new_sym").unwrap(), true);
+    assert_eq!(vfs.exists("/symlink").unwrap(), true);
+    assert_eq!(vfs.exists("/hardlink").unwrap(), true);
+    assert_eq!(vfs.exists("/new_dir").unwrap(), true);
+    assert_eq!(vfs.exists("/new_dir/cycle").unwrap(), true);
+}
+
+#[test]
+fn test_read_file() {
+    let vfs = gen_vfs();
+    let file = vfs.open_file("/new_file.c").unwrap();
+    let mut buf = [0u8; 8192];
+    let count = file.read_at(0, &mut buf).unwrap();
+    println!("{}", core::str::from_utf8(&buf).unwrap());
+    println!("count: {}", count);
+}
+
+#[test]
+fn test_rw() {
+    let vfs = gen_vfs();
+    let mut file = vfs.open_file("/new_file.c").unwrap();
+
+    let mut buffer = [0u8; 4096];
+    let mut random_str_test = |len: usize| {
+        file.set_len(0).unwrap();
+        assert_eq!(file.read_at(0, &mut buffer).unwrap(), 0);
+        let mut str = String::new();
+        use rand;
+        // random digit
+        for _ in 0..len {
+            str.push(char::from('0' as u8 + rand::random::<u8>() % 10));
+        }
+        file.write_at(0, str.as_bytes()).unwrap();
+        let mut read_buffer = [0u8; 127];
+        let mut offset = 0usize;
+        let mut read_str = String::new();
+        loop {
+            let len = file.read_at(offset, &mut read_buffer).unwrap();
+            if len == 0 {
+                break;
+            }
+            offset += len;
+            read_str.push_str(core::str::from_utf8(&read_buffer[..len]).unwrap());
+        }
+        assert_eq!(str, read_str);
+    };
+
+    let block_size = block::SIZE;
+    random_str_test(4 * block_size);
+    random_str_test(8 * block_size + block_size / 2);
+    random_str_test(100 * block_size);
+    random_str_test(2000 * block_size);
+    random_str_test(70 * block_size + block_size / 7);
+    random_str_test((12 + 128) * block_size);
+    random_str_test(400 * block_size);
+    random_str_test(1000 * block_size);
 }
 
 #[test]

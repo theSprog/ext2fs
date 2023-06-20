@@ -50,7 +50,8 @@ impl Ext2FileSystem {
     }
 
     fn root_inode(&self) -> Inode {
-        self.layout.root_inode(self.layout.clone())
+        self.layout
+            .root_inode(self.layout.clone(), self.allocator.clone())
     }
 }
 
@@ -65,18 +66,24 @@ impl FileSystem for Ext2FileSystem {
     }
 
     fn exists(&self, path: VfsPath) -> VfsResult<bool> {
-        todo!()
+        let root_inode = self.root_inode();
+        let target = root_inode.walk(&path);
+        Ok(target.is_ok())
     }
 
-    fn metadata(&self, path: VfsPath) -> VfsResult<alloc::boxed::Box<dyn VfsMetadata>> {
-        todo!()
+    fn metadata(&self, path: VfsPath) -> VfsResult<Box<dyn VfsMetadata>> {
+        let root_inode = self.root_inode();
+        let target = root_inode.walk(&path)?;
+        Ok(Box::new(target.metadata()))
     }
 
-    fn open_file(&self, path: VfsPath) -> VfsResult<alloc::boxed::Box<dyn VfsInode>> {
-        todo!()
+    fn open_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {
+        let root_inode = self.root_inode();
+        let target = root_inode.walk(&path)?;
+        Ok(Box::new(target))
     }
 
-    fn create_file(&self, path: VfsPath) -> VfsResult<alloc::boxed::Box<dyn VfsInode>> {
+    fn create_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {
         todo!()
     }
 

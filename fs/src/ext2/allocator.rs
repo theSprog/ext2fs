@@ -20,4 +20,12 @@ impl Ext2Allocator {
             blockgroups: layout.blockgroups(),
         }
     }
+
+    pub(crate) fn alloc_data(&self, needed: usize) -> Vec<u32> {
+        todo!()
+    }
+
+    pub(crate) fn dealloc_data(&self, needed: usize) -> Vec<u32> {
+        todo!()
+    }
 }

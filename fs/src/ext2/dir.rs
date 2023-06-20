@@ -15,7 +15,12 @@ use crate::{
     },
 };
 
-use super::{disk_inode::Ext2Inode, inode::Inode, layout::Ext2Layout};
+use super::{
+    allocator::{self, Ext2Allocator},
+    disk_inode::Ext2Inode,
+    inode::Inode,
+    layout::Ext2Layout,
+};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -55,14 +60,22 @@ pub struct DirEntry {
     inode_id: usize,
     parent_id: usize,
     layout: Arc<Ext2Layout>,
+    allocator: Arc<Ext2Allocator>,
 }
 impl DirEntry {
-    fn new(inode_id: usize, parent_id: usize, name: String, layout: Arc<Ext2Layout>) -> Self {
+    fn new(
+        inode_id: usize,
+        parent_id: usize,
+        name: String,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Ext2Allocator>,
+    ) -> Self {
         Self {
             name,
             inode_id,
             parent_id,
             layout,
+            allocator,
         }
     }
 }
@@ -84,7 +97,7 @@ impl VfsDirEntry for DirEntry {
     fn inode(&self) -> Box<dyn VfsInode> {
         Box::new(
             self.layout
-                .inode_nth(self.inode_id, self.layout.clone())
+                .inode_nth(self.inode_id, self.layout.clone(), self.allocator.clone())
                 .with_parent(self.parent_id),
         )
     }
@@ -94,16 +107,23 @@ pub struct Dir {
     inode_id: usize,
     buffer: Vec<u8>,
     layout: Arc<Ext2Layout>,
+    allocator: Arc<Ext2Allocator>,
 }
 
 impl Dir {
-    pub fn from_inode(inode_id: usize, ext2_inode: &Ext2Inode, layout: Arc<Ext2Layout>) -> Self {
+    pub fn from_inode(
+        inode_id: usize,
+        ext2_inode: &Ext2Inode,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Ext2Allocator>,
+    ) -> Self {
         let mut buffer = alloc::vec![0; ext2_inode.size()];
         ext2_inode.read_at(0, &mut buffer);
         Self {
             inode_id,
             buffer,
             layout,
+            allocator,
         }
     }
 
@@ -121,6 +141,7 @@ impl Dir {
                 self.inode_id(),
                 name,
                 self.layout.clone(),
+                self.allocator.clone(),
             ));
         }
         entries
@@ -156,7 +177,7 @@ impl Inode {
         assert!(self.is_dir());
 
         self.read_disk_inode(|ext2_inode| {
-            let dir = Dir::from_inode(self.inode_id(), ext2_inode, self.layout());
+            let dir = Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
             dir.entries()
         })
     }
@@ -182,7 +203,7 @@ impl Inode {
                 let parent = current_inode.parent_inode();
                 let symlink_path = current_inode.symlink_target(path)?;
                 if symlink_path.is_from_root() {
-                    let root = self.layout().root_inode(self.layout());
+                    let root = self.layout().root_inode(self.layout(), self.allocator());
                     current_inode = root.walk(&symlink_path)?;
                 } else {
                     current_inode = parent.walk(&symlink_path)?;
@@ -196,20 +217,23 @@ impl Inode {
             }
 
             let entries = current_inode.inner_read_dir();
-            let chosen = Self::find_single(&entries, next);
-            if chosen.is_none() {
-                return Err(IOError::new(IOErrorKind::NotFound)
-                    .with_path(next_path.to_string())
-                    .into());
-            }
-
-            // 迭代过程中需要维护父子链关系
             current_inode = self
-                .layout()
-                .inode_nth(chosen.unwrap().inode_id(), self.layout())
-                .with_parent(self.inode_id());
+                .child_inode(&entries, next)
+                .map_err(|err| err.with_path(next_path.to_string()))?;
         }
         Ok(current_inode)
+    }
+
+    fn child_inode(&self, entries: &[DirEntry], next: &str) -> VfsResult<Inode> {
+        let chosen = Self::find_single(entries, next);
+        if chosen.is_none() {
+            return Err(IOError::new(IOErrorKind::NotFound).into());
+        }
+        let child_id = chosen.unwrap().inode_id();
+        Ok(self
+            .layout()
+            .inode_nth(child_id, self.layout(), self.allocator().clone())
+            .with_parent(self.inode_id()))
     }
 
     fn find_single<'a>(entries: &'a [DirEntry], filename: &str) -> Option<&'a DirEntry> {

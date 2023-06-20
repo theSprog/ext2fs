@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use bitflags::bitflags;
 
 use crate::{
@@ -110,7 +111,7 @@ impl Ext2Inode {
         self.hard_links
     }
 
-    fn block_nth(&self, inner_idx: u32) -> u32 {
+    fn block_id_for(&self, inner_idx: u32) -> u32 {
         let inner_idx = inner_idx as usize;
         if inner_idx < Self::DIRECT_COUNT {
             self.direct_pointer[inner_idx]
@@ -154,7 +155,7 @@ impl Ext2Inode {
             let dst = &mut buf[read_size..read_size + block_read_size];
 
             block_device::read(
-                self.block_nth(start_block as u32) as usize,
+                self.block_id_for(start_block as u32) as usize,
                 0,
                 |data_block: &DataBlock| {
                     let src = &data_block[start % block_size..start % block_size + block_read_size];
@@ -171,6 +172,49 @@ impl Ext2Inode {
             start = end_current_block;
         }
         read_size
+    }
+
+    /// 文件长度必须先扩容, 本函数不负责扩容
+    pub fn write_at(&mut self, offset: usize, buf: &[u8]) -> usize {
+        let block_size = block::SIZE;
+        let mut start = offset;
+        let end = (offset + buf.len()).min(self.size());
+        assert!(start <= end);
+        let mut start_block = start / block_size;
+        let mut write_size = 0usize;
+        loop {
+            let mut end_current_block = (start / block_size + 1) * block_size;
+            end_current_block = end_current_block.min(end);
+
+            // write and update write size
+            let block_write_size = end_current_block - start;
+            block_device::modify(
+                self.block_id_for(start_block as u32) as usize,
+                0,
+                |data_block: &mut DataBlock| {
+                    let src = &buf[write_size..write_size + block_write_size];
+                    let dst =
+                        &mut data_block[start % block_size..start % block_size + block_write_size];
+                    dst.copy_from_slice(src);
+                },
+            );
+            write_size += block_write_size;
+            // move to next block
+            if end_current_block == end {
+                break;
+            }
+            start_block += 1;
+            start = end_current_block;
+        }
+        write_size
+    }
+
+    pub fn increase_size(&mut self, size: usize, needed: Vec<u32>) {
+        todo!()
+    }
+
+    pub fn decrease_size(&mut self, size: usize, freed: Vec<u32>) {
+        todo!()
     }
 }
 
@@ -221,6 +265,7 @@ bitflags! {
 impl TypePerm {
     pub fn filetype(&self) -> VfsFileType {
         match self {
+            // 下面的 if 不可以轻易调整顺序, 否则可能发生掩盖问题
             _ if self.contains(Self::SOCKET) => VfsFileType::Socket,
             _ if self.contains(Self::SYMLINK) => VfsFileType::SymbolicLink,
             _ if self.contains(Self::FILE) => VfsFileType::RegularFile,
@@ -228,7 +273,7 @@ impl TypePerm {
             _ if self.contains(Self::DIRECTORY) => VfsFileType::Directory,
             _ if self.contains(Self::CHAR_DEVICE) => VfsFileType::CharDev,
             _ if self.contains(Self::FIFO) => VfsFileType::FIFO,
-            _ => unreachable!(),
+            _ => unreachable!("bits {:X}", self.bits()),
         }
     }
 

@@ -20,7 +20,10 @@ pub use filesystem::FileSystem;
 pub use inode::VfsInode;
 pub use path::VfsPath;
 
-use self::error::{VfsErrorKind, VfsResult};
+use self::{
+    error::{VfsErrorKind, VfsResult},
+    meta::VfsMetadata,
+};
 
 #[derive(Debug)]
 pub struct VFS {
@@ -49,5 +52,34 @@ impl VFS {
     pub fn read_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<Vec<Box<dyn VfsDirEntry>>> {
         let vpath = Self::parse_path(path.as_ref())?;
         self.fs.read_dir(vpath)
+    }
+
+    pub fn exists<T: AsRef<str>>(&self, path: T) -> VfsResult<bool> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        self.fs.exists(vpath)
+    }
+    pub fn metadata<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsMetadata>> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        self.fs.metadata(vpath)
+    }
+    pub fn open_file<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        self.fs.open_file(vpath)
+    }
+    pub fn create_file<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        todo!()
+    }
+    pub fn remove_file<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        todo!()
+    }
+    pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        todo!()
+    }
+    pub fn remove_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+        let vpath = Self::parse_path(path.as_ref())?;
+        todo!()
     }
 }

@@ -4,7 +4,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use crate::{block::DataBlock, block_device, cast};
 
-use super::{disk_inode::Ext2Inode, inode::Inode, layout::Ext2Layout, Address};
+use super::{disk_inode::Ext2Inode, inode::Inode, layout::Ext2Layout, allocator::Ext2Allocator, address::Address};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -39,12 +39,18 @@ impl Ext2BlockGroupDesc {
         })
     }
 
-    pub fn get_inode(&self, inode_id: usize, inode_innner_idx: usize) -> Inode {
+    pub fn get_inode(
+        &self,
+        inode_id: usize,
+        inode_innner_idx: usize,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Ext2Allocator>,
+    ) -> Inode {
         let address = Address::new(
             self.inode_table_block as usize,
             (inode_innner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
         );
-        Inode::new(inode_id, address)
+        Inode::new(inode_id, address, layout, allocator)
     }
 }
 

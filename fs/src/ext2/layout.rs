@@ -2,6 +2,7 @@ use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use super::{
+    allocator::Ext2Allocator,
     blockgroup::{self, Ext2BlockGroupDesc},
     inode::Inode,
     superblock::{self, Superblock},
@@ -48,15 +49,20 @@ impl Ext2Layout {
         self.inodes_per_group
     }
 
-    pub fn root_inode(&self, layout: Arc<Ext2Layout>) -> Inode {
-        self.inode_nth(2, layout).with_parent(2)
+    pub fn root_inode(&self, layout: Arc<Ext2Layout>, allocator: Arc<Ext2Allocator>) -> Inode {
+        self.inode_nth(2, layout, allocator).with_parent(2)
     }
 
-    pub fn inode_nth(&self, inode_id: usize, layout: Arc<Ext2Layout>) -> Inode {
+    pub fn inode_nth(
+        &self,
+        inode_id: usize,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Ext2Allocator>,
+    ) -> Inode {
         // 拿到所在 block_group 和 inode 内部偏移量
         let (blockgroup_idx, inode_innner_idx) = self.inode_idx(inode_id);
         let bg = self.blockgroups.get(blockgroup_idx).unwrap().lock();
-        bg.get_inode(inode_id, inode_innner_idx).with_layout(layout)
+        bg.get_inode(inode_id, inode_innner_idx, layout, allocator)
     }
 
     fn inode_idx(&self, inode_id: usize) -> (usize, usize) {
