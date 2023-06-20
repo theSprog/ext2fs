@@ -13,6 +13,7 @@ pub struct Address {
 }
 
 impl Address {
+    /// # Safety
     pub unsafe fn new_unchecked(block_id: usize, offset: usize) -> Self {
         assert!(offset < block::SIZE, "offset out of block bounds");
         Self { block_id, offset }
@@ -66,7 +67,7 @@ impl From<usize> for Address {
 
 impl From<Address> for usize {
     fn from(addr: Address) -> usize {
-        (addr.block_id << block::LOG_SIZE) | (addr.offset as usize)
+        (addr.block_id << block::LOG_SIZE) | addr.offset
     }
 }
 

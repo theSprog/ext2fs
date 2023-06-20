@@ -1,6 +1,17 @@
-pub trait VfsMetadata {}
+use core::fmt::Debug;
+use core::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub trait VfsMetadata: Debug + Display {
+    fn filetype(&self) -> VfsFileType;
+    fn permissions(&self) -> VfsPermissions;
+    fn size(&self) -> u64;
+    fn timestamp(&self) -> VfsTimeStamp;
+    fn uid(&self) -> u16;
+    fn gid(&self) -> u16;
+    fn hard_links(&self) -> u16;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VfsFileType {
     RegularFile,
     Directory,
@@ -23,7 +34,22 @@ impl VfsFileType {
     }
 }
 
-#[derive(Debug, Clone)]
+impl Display for VfsFileType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            VfsFileType::RegularFile => write!(f, "."),
+            VfsFileType::Directory => write!(f, "d"),
+            VfsFileType::FIFO => write!(f, "f"),
+            VfsFileType::SymbolicLink => write!(f, "l"),
+            _ => todo!(),
+            // VfsFileType::CharDev => write!(f, "CharDev"),
+            // VfsFileType::BlockDev => write!(f, "BlockDev"),
+            // VfsFileType::Socket => write!(f, "Socket"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct VfsPermissions {
     user: VfsPermission,
     group: VfsPermission,
@@ -40,7 +66,15 @@ impl VfsPermissions {
     }
 }
 
-#[derive(Debug, Clone)]
+impl Display for VfsPermissions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.user)?;
+        write!(f, "{}", self.group)?;
+        write!(f, "{}", self.others)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct VfsPermission {
     read: bool,
     write: bool,
@@ -64,5 +98,48 @@ impl From<u8> for VfsPermission {
             write: (value & 0x2) != 0,
             execute: (value & 0x4) != 0,
         }
+    }
+}
+
+impl Display for VfsPermission {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            if self.read { "r" } else { "-" },
+            if self.write { "w" } else { "-" },
+            if self.execute { "x" } else { "-" }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct VfsTimeStamp {
+    atime: u64,
+    mtime: u64,
+    ctime: u64,
+    dtime: u64,
+}
+
+impl VfsTimeStamp {
+    pub fn new(atime: u64, ctime: u64, mtime: u64, dtime: u64) -> VfsTimeStamp {
+        Self {
+            atime,
+            mtime,
+            ctime,
+            dtime,
+        }
+    }
+    pub fn atime(&self) -> u64 {
+        self.atime
+    }
+    pub fn mtime(&self) -> u64 {
+        self.mtime
+    }
+    pub fn ctime(&self) -> u64 {
+        self.ctime
+    }
+    pub fn dtime(&self) -> u64 {
+        self.dtime
     }
 }

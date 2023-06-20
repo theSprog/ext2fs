@@ -39,17 +39,12 @@ impl Ext2BlockGroupDesc {
         })
     }
 
-    pub fn get_inode(
-        &self,
-        inode_id: usize,
-        inode_innner_idx: usize,
-        layout: Arc<Ext2Layout>,
-    ) -> Inode {
-        let addr = Address::new(
+    pub fn get_inode(&self, inode_id: usize, inode_innner_idx: usize) -> Inode {
+        let address = Address::new(
             self.inode_table_block as usize,
             (inode_innner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
         );
-        Inode::new(inode_id, addr, layout)
+        Inode::new(inode_id, address)
     }
 }
 

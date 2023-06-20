@@ -75,6 +75,14 @@ impl Ext2Inode {
         todo!()
     }
 
+    pub fn filetype(&self) -> VfsFileType {
+        self.type_perm.filetype()
+    }
+
+    pub fn permissions(&self) -> VfsPermissions {
+        self.type_perm.permissions()
+    }
+
     pub fn size(&self) -> usize {
         if self.filetype().is_file() {
             assert_eq!(self.size_high, 0);
@@ -82,12 +90,24 @@ impl Ext2Inode {
         self.size_low as usize
     }
 
-    pub fn filetype(&self) -> VfsFileType {
-        self.type_perm.filetype()
+    pub fn timestamp(&self) -> VfsTimeStamp {
+        VfsTimeStamp::new(
+            self.atime as u64,
+            self.ctime as u64,
+            self.mtime as u64,
+            self.dtime as u64,
+        )
     }
 
-    pub fn permissions(&self) -> VfsPermissions {
-        self.type_perm.permissions()
+    pub fn uid(&self) -> u16 {
+        self.uid
+    }
+    pub fn gid(&self) -> u16 {
+        self.gid
+    }
+
+    pub fn hard_links(&self) -> u16 {
+        self.hard_links
     }
 
     fn block_nth(&self, inner_idx: u32) -> u32 {
@@ -200,22 +220,15 @@ bitflags! {
 
 impl TypePerm {
     pub fn filetype(&self) -> VfsFileType {
-        if self.contains(Self::FIFO) {
-            VfsFileType::FIFO
-        } else if self.contains(Self::CHAR_DEVICE) {
-            VfsFileType::CharDev
-        } else if self.contains(Self::DIRECTORY) {
-            VfsFileType::Directory
-        } else if self.contains(Self::BLOCK_DEVICE) {
-            VfsFileType::BlockDev
-        } else if self.contains(Self::FILE) {
-            VfsFileType::RegularFile
-        } else if self.contains(Self::SYMLINK) {
-            VfsFileType::SymbolicLink
-        } else if self.contains(Self::SOCKET) {
-            VfsFileType::Socket
-        } else {
-            unreachable!()
+        match self {
+            _ if self.contains(Self::SOCKET) => VfsFileType::Socket,
+            _ if self.contains(Self::SYMLINK) => VfsFileType::SymbolicLink,
+            _ if self.contains(Self::FILE) => VfsFileType::RegularFile,
+            _ if self.contains(Self::BLOCK_DEVICE) => VfsFileType::BlockDev,
+            _ if self.contains(Self::DIRECTORY) => VfsFileType::Directory,
+            _ if self.contains(Self::CHAR_DEVICE) => VfsFileType::CharDev,
+            _ if self.contains(Self::FIFO) => VfsFileType::FIFO,
+            _ => unreachable!(),
         }
     }
 

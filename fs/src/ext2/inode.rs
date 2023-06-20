@@ -1,40 +1,42 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::vfs::error::{IOError, IOErrorKind, VfsResult};
-use crate::vfs::meta::VfsFileType;
+use crate::vfs::meta::{VfsFileType, VfsMetadata, VfsTimeStamp};
 use crate::vfs::{VfsDirEntry, VfsInode, VfsPath};
 use crate::{block_device, vfs::meta::VfsPermissions};
 
 use super::dir::Dir;
 use super::layout::Ext2Layout;
+use super::metadata::Ext2Metadata;
 use super::{disk_inode::Ext2Inode, Address};
 
 #[derive(Debug, Clone)]
 pub struct Inode {
     address: Address,
-    self_id: usize,
-    parent_id: Option<usize>,
-    layout: Arc<Ext2Layout>,
+    inode_id: usize,
     filetype: VfsFileType,
-    permissions: VfsPermissions,
+
+    parent_id: Option<usize>,
+    layout: Option<Arc<Ext2Layout>>,
 }
 impl Inode {
-    pub(crate) fn new(self_id: usize, address: Address, layout: Arc<Ext2Layout>) -> Inode {
-        let (filetype, permissions) = block_device::read(
+    pub(crate) fn new(inode_id: usize, address: Address) -> Inode {
+        let filetype = block_device::read(
             address.block_id(),
             address.offset(),
-            |disk_inode: &Ext2Inode| (disk_inode.filetype(), disk_inode.permissions()),
+            |disk_inode: &Ext2Inode| disk_inode.filetype(),
         );
 
         Self {
             address,
-            self_id,
-            parent_id: None,
-            layout,
+            inode_id,
             filetype,
-            permissions,
+
+            parent_id: None,
+            layout: None,
         }
     }
 
@@ -45,12 +47,46 @@ impl Inode {
         }
     }
 
+    pub(crate) fn with_layout(self, layout: Arc<Ext2Layout>) -> Self {
+        Self {
+            layout: Some(layout),
+            ..self
+        }
+    }
+
     pub fn inode_id(&self) -> usize {
-        self.self_id
+        self.inode_id
     }
 
     pub fn parent_id(&self) -> usize {
         self.parent_id.unwrap()
+    }
+
+    pub fn parent_inode(&self) -> Inode {
+        self.layout
+            .as_ref()
+            .unwrap()
+            .inode_nth(self.parent_id(), self.layout())
+    }
+
+    pub fn layout(&self) -> Arc<Ext2Layout> {
+        self.layout.clone().unwrap()
+    }
+
+    pub fn size(&self) -> usize {
+        block_device::read(
+            self.address.block_id(),
+            self.address.offset(),
+            |disk_inode: &Ext2Inode| disk_inode.size(),
+        )
+    }
+
+    pub fn timestamp(&self) -> VfsTimeStamp {
+        block_device::read(
+            self.address.block_id(),
+            self.address.offset(),
+            |disk_inode: &Ext2Inode| disk_inode.timestamp(),
+        )
     }
 
     pub fn is_file(&self) -> bool {
@@ -70,66 +106,41 @@ impl Inode {
         self.address.offset()
     }
 
-    fn read_disk_inode<V>(&self, f: impl FnOnce(&Ext2Inode) -> V) -> V {
+    pub(crate) fn read_disk_inode<V>(&self, f: impl FnOnce(&Ext2Inode) -> V) -> V {
         block_device::read(self.block_id(), self.offset(), f)
     }
 
-    fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut Ext2Inode) -> V) -> V {
+    pub(crate) fn modify_disk_inode<V>(&self, f: impl FnOnce(&mut Ext2Inode) -> V) -> V {
         block_device::modify(self.block_id(), self.offset(), f)
     }
 
-    fn sync_disk_inode<V>(&self) {
+    pub(crate) fn sync_disk_inode(&self) {
         block_device::sync(self.block_id());
     }
 
-    pub(crate) fn walk(&self, path: &VfsPath) -> VfsResult<Inode> {
-        let last = self.goto_last(path)?;
-        if last.is_symlink() {
-            self.goto_last(&last.symlink_target()?)
-        } else {
-            Ok(last)
-        }
-    }
-
-    fn goto_last(&self, path: &VfsPath) -> VfsResult<Inode> {
-        let mut path = path.clone();
-        let next = path.next();
-        let current_inode = self.clone();
-
-        loop {
-            match next {
-                None => {
-                    return Ok(current_inode.clone());
-                }
-                Some(name) => {
-                    todo!()
-                }
-            }
-        }
-    }
-
-    fn symlink_target(&self) -> VfsResult<VfsPath> {
-        if !self.is_symlink() {
-            return Err(IOError::new(IOErrorKind::NotASymlink).into());
-        }
-
-        todo!()
-    }
-
-    pub(crate) fn read_dir(&self) -> VfsResult<Vec<Box<dyn VfsDirEntry>>> {
-        if !self.is_dir() {
-            return Err(IOError::new(IOErrorKind::NotADirectory).into());
-        }
-
+    pub fn metadata(&self) -> Ext2Metadata {
         self.read_disk_inode(|ext2_inode| {
-            let dir = Dir::from_inode(self.inode_id(), ext2_inode, self.layout.clone());
-            Ok(dir
-                .entries()
-                .into_iter()
-                .map(|x| x as Box<dyn VfsDirEntry>)
-                .collect())
+            Ext2Metadata::new(
+                ext2_inode.filetype(),
+                ext2_inode.permissions(),
+                ext2_inode.size(),
+                ext2_inode.timestamp(),
+                ext2_inode.uid(),
+                ext2_inode.gid(),
+                ext2_inode.hard_links(),
+            )
         })
     }
 }
 
-impl VfsInode for Inode {}
+impl VfsInode for Inode {
+    fn metadata(&self) -> Box<dyn VfsMetadata> {
+        // 有趣的是, 如果函数重名(比如这里的 metadata 和 Inode 的 metadata)
+        // 并不会发生冲突, 而是结构体方法优先
+        Box::new(self.metadata())
+    }
+
+    fn read_symlink(&self) -> String {
+        self.read_symlink()
+    }
+}

@@ -14,24 +14,35 @@ pub type VfsResult<T> = core::result::Result<T, VfsError>;
 #[derive(Debug)]
 pub struct VfsError {
     path: String,
+    additional: String,
     kind: VfsErrorKind,
-    context: String,
+}
+
+impl VfsError {
+    pub fn new(path: String, kind: VfsErrorKind, additional: String) -> VfsError {
+        VfsError {
+            path,
+            additional,
+            kind,
+        }
+    }
 }
 
 /// This conversion implements certain normalizations
 impl From<VfsErrorKind> for VfsError {
     fn from(kind: VfsErrorKind) -> Self {
-        Self {
-            path: "PATH NOT FILLED BY VFS LAYER".into(),
-            kind,
-            context: "An error occured".into(),
-        }
+        let path = match &kind {
+            VfsErrorKind::IOError(io_err) => io_err.path().to_string(),
+            _ => "NOT FILLED BY VFS LAYER".into(),
+        };
+
+        Self::new(path, kind, "AN ERROR OCCURRED".into())
     }
 }
 
 impl From<IOError> for VfsError {
     fn from(err: IOError) -> Self {
-        Self::from(VfsErrorKind::IoError(err))
+        Self::from(VfsErrorKind::IOError(err))
     }
 }
 
@@ -42,12 +53,8 @@ impl VfsError {
         self
     }
 
-    pub fn with_context<C, F>(mut self, context: F) -> Self
-    where
-        C: fmt::Display + Send + Sync + 'static,
-        F: FnOnce() -> C,
-    {
-        self.context = context().to_string();
+    pub fn with_additional<T: ToString>(mut self, additional: T) -> Self {
+        self.additional = additional.to_string();
         self
     }
 
@@ -62,7 +69,13 @@ impl VfsError {
 
 impl fmt::Display for VfsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} for '{}': {}", self.context, self.path, self.kind())
+        write!(
+            f,
+            "{} for '{}': {}",
+            self.additional,
+            self.path,
+            self.kind()
+        )
     }
 }
 
@@ -72,7 +85,7 @@ pub enum VfsErrorKind {
     /// A generic I/O error
     ///
     /// Certain standard I/O errors are normalized to their VfsErrorKind counterparts
-    IoError(IOError),
+    IOError(IOError),
 
     // FSError(FSError),
     /// The file or directory at the given path could not be found
@@ -97,7 +110,7 @@ pub enum VfsErrorKind {
 impl fmt::Display for VfsErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VfsErrorKind::IoError(err) => {
+            VfsErrorKind::IOError(err) => {
                 write!(f, "IO error: {:?}", err)
             }
             // VfsErrorKind::FSError(err) => {
@@ -128,11 +141,26 @@ impl fmt::Display for VfsErrorKind {
 #[derive(Debug)]
 pub struct IOError {
     kind: IOErrorKind,
+    path: String,
 }
 
 impl IOError {
     pub fn new(kind: IOErrorKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            path: String::new(),
+        }
+    }
+
+    pub fn with_path(self, path: String) -> Self {
+        Self { path, ..self }
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+    pub fn kind(&self) -> &IOErrorKind {
+        &self.kind
     }
 }
 

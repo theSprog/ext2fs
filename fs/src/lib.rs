@@ -9,8 +9,8 @@ extern crate alloc;
 pub mod block_device;
 pub mod ext2;
 pub mod vfs;
+pub mod time;
 
-mod time;
 mod util;
 
 pub mod block {

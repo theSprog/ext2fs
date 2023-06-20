@@ -36,20 +36,16 @@ impl BlockCache {
         &self.cache[offset] as *const _ as usize
     }
 
-    pub unsafe fn get_ref<T>(&self, offset: usize) -> &T
-    where
-        T: Sized,
-    {
+    /// # Safety
+    pub unsafe fn get_ref<T>(&self, offset: usize) -> &T {
         let type_size = core::mem::size_of::<T>();
         assert!(offset + type_size <= block::SIZE);
         let addr = self.addr_of_offset(offset);
         cast!(addr, T)
     }
 
-    pub unsafe fn get_mut<T>(&mut self, offset: usize) -> &mut T
-    where
-        T: Sized,
-    {
+    /// # Safety
+    pub unsafe fn get_mut<T>(&mut self, offset: usize) -> &mut T {
         let type_size = core::mem::size_of::<T>();
         assert!(offset + type_size <= block::SIZE);
         self.modified = true;
@@ -91,7 +87,7 @@ impl BlockCacheManager {
     pub fn get_block_cache(&mut self, block_id: usize) -> Arc<Mutex<BlockCache>> {
         // 如果已经在缓存中
         if let Some(block_cache) = self.map.get(&block_id) {
-            return block_cache.clone();
+            block_cache.clone()
         } else {
             // 保留还有引用的
             if self.map.len() == BLOCK_CACHE_SIZE {

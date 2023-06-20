@@ -1,6 +1,7 @@
-use core::slice::Iter;
+use core::{fmt::Display, slice::Iter};
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::{String, ToString}, vec::Vec};
+use core::ops::Deref;
 
 #[derive(Debug)]
 pub struct VfsPath {
@@ -9,25 +10,41 @@ pub struct VfsPath {
 }
 
 impl VfsPath {
-    pub fn to_string(&self) -> String {
-        let joined = self.inner.join("/");
-        if self.from_root {
-            alloc::format!("/{}", joined)
-        } else {
-            joined
+    pub fn empty(from_root: bool) -> VfsPath {
+        VfsPath {
+            from_root,
+            inner: Vec::new(),
         }
     }
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.inner.iter().map(|x| x.as_str())
+    }
 
-    // pub fn iter(&self) -> Iter<String> {
-    //     self.inner.iter()
-    // }
+    pub fn is_from_root(&self) -> bool {
+        self.from_root
+    }
+
+    pub fn push(&mut self, next: &str) {
+        self.inner.push(next.to_string());
+    }
 }
 
-impl<'a> Iterator for &'a VfsPath {
-    type Item = &'a str;
+impl Display for VfsPath {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let joined = self.inner.join("/");
+        if self.from_root {
+            write!(f, "/{}", joined)
+        } else {
+            write!(f, "{}", joined)
+        }
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.iter().next().map(|x| x.as_str())
+impl Deref for VfsPath {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 

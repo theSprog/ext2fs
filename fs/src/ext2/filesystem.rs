@@ -1,6 +1,11 @@
 use core::fmt::{self, Display};
 
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use spin::Mutex;
 
 use crate::{
@@ -45,7 +50,7 @@ impl Ext2FileSystem {
     }
 
     fn root_inode(&self) -> Inode {
-        self.layout.inode_nth(2, self.layout.clone()).with_parent(2)
+        self.layout.root_inode(self.layout.clone())
     }
 }
 
