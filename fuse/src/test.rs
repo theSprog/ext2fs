@@ -25,7 +25,7 @@ fn test_vfs() {
 #[test]
 fn test_read_dir() {
     let vfs = gen_vfs();
-    let dir = vfs.read_dir("/new_dir/cycle").unwrap();
+    let dir = vfs.read_dir("/").unwrap();
     println!(
         "{:>5} {:>11} {:>5} {:>8} {:>5} {:>5} {:>19} {}",
         "Inode", "Permissions", "Links", "Size", "UID", "GID", "Modified Time", "Name"
@@ -83,6 +83,7 @@ fn test_rw() {
 
     let mut buffer = [0u8; 4096];
     let mut random_str_test = |len: usize| {
+        println!("rand test: {}", len);
         file.set_len(0).unwrap();
         assert_eq!(file.read_at(0, &mut buffer).unwrap(), 0);
         let mut str = String::new();
@@ -92,7 +93,7 @@ fn test_rw() {
             str.push(char::from('0' as u8 + rand::random::<u8>() % 10));
         }
         file.write_at(0, str.as_bytes()).unwrap();
-        let mut read_buffer = [0u8; 127];
+        let mut read_buffer = [0u8; 8192];
         let mut offset = 0usize;
         let mut read_str = String::new();
         loop {
@@ -106,15 +107,20 @@ fn test_rw() {
         assert_eq!(str, read_str);
     };
 
+    use rand::Rng;
     let block_size = block::SIZE;
-    random_str_test(4 * block_size);
-    random_str_test(8 * block_size + block_size / 2);
-    random_str_test(100 * block_size);
-    random_str_test(2000 * block_size);
-    random_str_test(70 * block_size + block_size / 7);
-    random_str_test((12 + 128) * block_size);
-    random_str_test(400 * block_size);
-    random_str_test(1000 * block_size);
+    let mut rng = rand::thread_rng();
+    for i in 0..5 {
+        random_str_test(rng.gen_range(0..2300 * block_size));
+        random_str_test(rng.gen_range(0..800 * block_size));
+        random_str_test(rng.gen_range(0..3 * block_size));
+        random_str_test(rng.gen_range(0..1800 * block_size));
+        random_str_test(rng.gen_range(0..5 * block_size));
+        random_str_test(rng.gen_range(0..500 * block_size));
+        random_str_test(rng.gen_range(0..1500 * block_size));
+    }
+
+    vfs.flush().unwrap();
 }
 
 #[test]

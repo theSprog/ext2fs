@@ -3,10 +3,11 @@ use core::fmt::{Debug, Display};
 use alloc::{boxed::Box, string::String, vec::Vec};
 
 use super::{
+    dir::VfsDirEntry,
     error::{VfsErrorKind, VfsResult},
     inode::VfsInode,
     meta::VfsMetadata,
-    path::VfsPath, dir::VfsDirEntry,
+    path::VfsPath,
 };
 
 pub trait FileSystem: Debug + Display + Sync + Send + 'static {
@@ -33,4 +34,8 @@ pub trait FileSystem: Debug + Display + Sync + Send + 'static {
     // fn move_dir(&self, _src: &str, _dest: &str) -> VfsResult<()> {
     //     Err(VfsErrorKind::NotSupported.into())
     // }
+
+    fn flush(&self) -> VfsResult<()> {
+        Err(VfsErrorKind::NotSupported.into())
+    }
 }

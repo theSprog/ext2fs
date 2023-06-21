@@ -178,4 +178,5 @@ pub enum IOErrorKind {
     TooLongFileName,
     TooManyLinks,
     InvalidFilename,
+    NoFreeBlocks,
 }

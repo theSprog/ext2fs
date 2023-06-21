@@ -3,6 +3,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use lazy_static::__Deref;
+use spin::Mutex;
 
 use crate::vfs::error::{IOError, IOErrorKind, VfsResult};
 use crate::vfs::meta::{VfsFileType, VfsMetadata, VfsTimeStamp};
@@ -23,7 +24,7 @@ pub struct Inode {
     filetype: VfsFileType,
 
     layout: Arc<Ext2Layout>,
-    allocator: Arc<Ext2Allocator>,
+    allocator: Arc<Mutex<Ext2Allocator>>,
 
     parent_id: Option<usize>,
 }
@@ -32,7 +33,7 @@ impl Inode {
         inode_id: usize,
         address: Address,
         layout: Arc<Ext2Layout>,
-        allocator: Arc<Ext2Allocator>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Inode {
         let filetype = block_device::read(
             address.block_id(),
@@ -70,7 +71,7 @@ impl Inode {
         self.layout.clone()
     }
 
-    pub fn allocator(&self) -> Arc<Ext2Allocator> {
+    pub fn allocator(&self) -> Arc<Mutex<Ext2Allocator>> {
         self.allocator.clone()
     }
 
@@ -139,40 +140,39 @@ impl Inode {
     }
 
     fn blocks_needed(old_size: usize, new_size: usize) -> usize {
-        todo!()
+        assert!(new_size > old_size);
+        Ext2Inode::total_blocks(new_size) - Ext2Inode::total_blocks(old_size)
     }
-
     fn blocks_freed(old_size: usize, new_size: usize) -> usize {
-        todo!()
+        assert!(new_size < old_size);
+        Ext2Inode::total_blocks(old_size) - Ext2Inode::total_blocks(new_size)
     }
 
     pub fn increase_to(&self, new_size: usize) -> VfsResult<()> {
-        assert!(self.size() > new_size);
-        // 计算申请的 block 数,
-        // 从 bitmap 得到 idx 索引向量
-        // ext2_inode 扩容,
-
+        assert!(self.size() < new_size);
         let needed_num = Self::blocks_needed(self.size(), new_size);
-        let mut needed: Vec<u32> = self.allocator.alloc_data(needed_num);
+        let new_blocks = self.allocator.lock().alloc_data(needed_num)?;
         self.modify_disk_inode(|ext2_inode| {
-            ext2_inode.increase_size(new_size, needed);
+            ext2_inode.increase_to(new_size, new_blocks);
         });
 
-        todo!()
+        Ok(())
     }
 
     pub fn decrease_to(&self, new_size: usize) -> VfsResult<()> {
-        assert!(self.size() < new_size);
-        // 计算释放的 block 数,
-        // 从 ext2_inode 中释放 blocks, 得到索引向量
-        // 在 bitmap 中释放 idx 索引向量
-
+        assert!(
+            self.size() > new_size,
+            "now_size: {}, new_size: {}",
+            self.size(),
+            new_size
+        );
         let freed_num = Self::blocks_freed(self.size(), new_size);
-        let mut freed: Vec<u32> = self.allocator.dealloc_data(freed_num);
-        self.modify_disk_inode(|ext2_inode| {
-            ext2_inode.decrease_size(new_size, freed);
-        });
-        todo!()
+        let freed = self.modify_disk_inode(|ext2_inode| ext2_inode.decrease_to(new_size));
+        assert_eq!(freed.len(), freed_num);
+
+        self.allocator.lock().dealloc_data(freed)?;
+
+        Ok(())
     }
 }
 
@@ -181,8 +181,14 @@ impl VfsInode for Inode {
         Ok(self.read_disk_inode(|ext2_inode| ext2_inode.read_at(offset, buf)))
     }
 
-    fn write_at(&self, offset: usize, buf: &[u8]) -> VfsResult<usize> {
-        todo!()
+    fn write_at(&mut self, offset: usize, buf: &[u8]) -> VfsResult<usize> {
+        // 如果当前 size 不够则需要先扩容
+        let end_offset = offset + buf.len();
+        if self.size() < end_offset {
+            self.increase_to(end_offset)?;
+        }
+
+        Ok(self.modify_disk_inode(|disk_inode| disk_inode.write_at(offset, buf)))
     }
 
     fn set_len(&mut self, len: usize) -> VfsResult<()> {

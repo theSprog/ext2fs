@@ -112,7 +112,7 @@ pub struct Superblock {
     /// supported to read or write)
     pub features_req: FeaturesRequired,
     /// Features that if not supported, the volume must be mounted
-    /// read-only)
+    /// read-only
     pub features_ronly: FeaturesROnly,
     /// File system ID (what is output by blkid)
     pub fs_id: [u8; 16],

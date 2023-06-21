@@ -20,6 +20,8 @@ pub use filesystem::FileSystem;
 pub use inode::VfsInode;
 pub use path::VfsPath;
 
+use crate::block_device;
+
 use self::{
     error::{VfsErrorKind, VfsResult},
     meta::VfsMetadata,
@@ -81,5 +83,11 @@ impl VFS {
     pub fn remove_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
+    }
+
+    pub fn flush(&self) -> VfsResult<()> {
+        self.fs.flush()?;
+        block_device::flush();
+        Ok(())
     }
 }

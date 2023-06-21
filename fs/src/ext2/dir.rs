@@ -6,6 +6,7 @@ use alloc::{
     sync::Arc,
     vec::{self, Vec},
 };
+use spin::Mutex;
 
 use crate::{
     cast,
@@ -60,7 +61,7 @@ pub struct DirEntry {
     inode_id: usize,
     parent_id: usize,
     layout: Arc<Ext2Layout>,
-    allocator: Arc<Ext2Allocator>,
+    allocator: Arc<Mutex<Ext2Allocator>>,
 }
 impl DirEntry {
     fn new(
@@ -68,7 +69,7 @@ impl DirEntry {
         parent_id: usize,
         name: String,
         layout: Arc<Ext2Layout>,
-        allocator: Arc<Ext2Allocator>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Self {
         Self {
             name,
@@ -107,7 +108,7 @@ pub struct Dir {
     inode_id: usize,
     buffer: Vec<u8>,
     layout: Arc<Ext2Layout>,
-    allocator: Arc<Ext2Allocator>,
+    allocator: Arc<Mutex<Ext2Allocator>>,
 }
 
 impl Dir {
@@ -115,7 +116,7 @@ impl Dir {
         inode_id: usize,
         ext2_inode: &Ext2Inode,
         layout: Arc<Ext2Layout>,
-        allocator: Arc<Ext2Allocator>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Self {
         let mut buffer = alloc::vec![0; ext2_inode.size()];
         ext2_inode.read_at(0, &mut buffer);

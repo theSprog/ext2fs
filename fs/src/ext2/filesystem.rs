@@ -23,7 +23,7 @@ use super::{
 #[derive(Debug)]
 pub struct Ext2FileSystem {
     layout: Arc<Ext2Layout>,
-    allocator: Arc<Ext2Allocator>,
+    allocator: Arc<Mutex<Ext2Allocator>>,
 }
 
 impl Display for Ext2FileSystem {
@@ -44,9 +44,13 @@ impl Ext2FileSystem {
         let blockgroups = Ext2BlockGroupDesc::find(blockgroup_count);
 
         let layout = Arc::new(Ext2Layout::new(superblock, blockgroups));
-        let allocator = Arc::new(Ext2Allocator::new(layout.clone()));
+        let allocator = Arc::new(Mutex::new(Ext2Allocator::new(layout.clone())));
 
         Self { layout, allocator }
+    }
+
+    pub fn flush(&self) {
+        self.layout.flush();
     }
 
     fn root_inode(&self) -> Inode {
@@ -97,5 +101,10 @@ impl FileSystem for Ext2FileSystem {
 
     fn remove_dir(&self, path: VfsPath) -> VfsResult<()> {
         todo!()
+    }
+
+    fn flush(&self) -> VfsResult<()> {
+        self.flush();
+        Ok(())
     }
 }

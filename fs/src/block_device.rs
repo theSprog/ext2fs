@@ -102,10 +102,20 @@ impl BlockCacheManager {
 
             let block_cache = Arc::new(Mutex::new(BlockCache::new(
                 block_id,
-                Arc::clone(self.block_device.as_ref().unwrap()),
+                Arc::clone(
+                    self.block_device
+                        .as_ref()
+                        .expect("block_device haven't been registered yet"),
+                ),
             )));
             self.map.insert(block_id, block_cache.clone());
             block_cache
+        }
+    }
+
+    pub fn flush(&mut self) {
+        for (_, block_cache) in self.map.iter_mut() {
+            block_cache.lock().sync();
         }
     }
 }
@@ -132,4 +142,8 @@ pub fn modify<T, V>(block_id: usize, offset: usize, operation: impl FnOnce(&mut 
 
 pub fn sync(block_id: usize) {
     block_nth(block_id).lock().sync()
+}
+
+pub fn flush() {
+    crate::BLOCK_CACHE_MANAGER.lock().flush()
 }

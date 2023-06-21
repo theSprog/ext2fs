@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Remote Debug RISC-V",
+            "type": "cppdbg",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "args": [],
+            "stopAtEntry": true,
+            "MIMode": "gdb", // gdb 协议
+        }
+    ],
+}

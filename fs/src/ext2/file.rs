@@ -1,3 +1,3 @@
-use super::inode::Inode;
+use crate::{block, ceil_index};
 
-impl Inode {}
+use super::{disk_inode::Ext2Inode, inode::Inode};

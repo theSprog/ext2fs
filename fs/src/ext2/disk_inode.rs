@@ -1,9 +1,9 @@
-use alloc::vec::Vec;
+use alloc::vec::{IntoIter, Vec};
 use bitflags::bitflags;
 
 use crate::{
     block::{self, DataBlock},
-    block_device,
+    block_device, ceil_index,
     vfs::meta::*,
 };
 
@@ -89,6 +89,13 @@ impl Ext2Inode {
             assert_eq!(self.size_high, 0);
         }
         self.size_low as usize
+    }
+
+    pub fn set_size(&mut self, size: usize) {
+        if self.filetype().is_file() {
+            assert_eq!(self.size_high, 0);
+        }
+        self.size_low = size as u32;
     }
 
     pub fn timestamp(&self) -> VfsTimeStamp {
@@ -209,12 +216,280 @@ impl Ext2Inode {
         write_size
     }
 
-    pub fn increase_size(&mut self, size: usize, needed: Vec<u32>) {
-        todo!()
+    pub fn data_blocks(size: usize) -> usize {
+        ceil_index!(size, block::SIZE)
     }
 
-    pub fn decrease_size(&mut self, size: usize, freed: Vec<u32>) {
-        todo!()
+    // 计算文件包含的总块数, 包含 indirect1/2
+    pub fn total_blocks(size: usize) -> usize {
+        let data_blocks = Self::data_blocks(size);
+        let mut total = data_blocks;
+
+        // 需要一个块充当 indirect1
+        if data_blocks > Self::DIRECT_COUNT {
+            total += 1;
+        }
+
+        // 需要一个块充当 indirect2
+        if data_blocks > Self::INDIRECT_BOUND {
+            total += 1;
+            let double_blocks = data_blocks - Self::INDIRECT_BOUND;
+            total += ceil_index!(double_blocks, Self::INDIRECT_COUNT);
+        }
+        total
+    }
+
+    // 在 [start, end) 之间填充 blocks
+    fn fill_from_direct(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut IntoIter<u32>,
+    ) -> usize {
+        let mut current = start_block;
+        let end = end_block.min(Self::DIRECT_COUNT);
+        while current < end {
+            self.direct_pointer[current] = blocks.next().unwrap();
+            current += 1;
+        }
+        current
+    }
+
+    fn fill_from_indirect(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut IntoIter<u32>,
+    ) -> usize {
+        // 如果不在自己的范围内
+        if end_block <= Self::DIRECT_COUNT {
+            return start_block;
+        }
+
+        let end = (end_block - Self::DIRECT_COUNT).min(Self::INDIRECT_COUNT);
+        let mut current = start_block - Self::DIRECT_COUNT;
+        if current == 0 {
+            self.indirect_pointer = blocks.next().unwrap();
+        }
+        block_device::modify(
+            self.indirect_pointer as usize,
+            0,
+            |indirect1: &mut IndirectBlock| {
+                while current < end {
+                    indirect1[current] = blocks.next().unwrap();
+                    current += 1;
+                }
+            },
+        );
+
+        current + Self::DIRECT_COUNT
+    }
+
+    fn fill_from_double(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut IntoIter<u32>,
+    ) -> usize {
+        if end_block <= Self::INDIRECT_BOUND {
+            return start_block;
+        }
+
+        let end = (end_block - Self::INDIRECT_BOUND).min(Self::DOUBLE_COUNT);
+        let mut current = start_block - Self::INDIRECT_BOUND;
+        if current == 0 {
+            self.doubly_indirect = blocks.next().unwrap();
+        }
+
+        // fill indirect2 from (a0, b0) -> (a1, b1)
+        let mut a0 = current / Self::INDIRECT_COUNT;
+        let mut b0 = current % Self::INDIRECT_COUNT;
+        let a1 = end / Self::INDIRECT_COUNT;
+        let b1 = end % Self::INDIRECT_COUNT;
+
+        block_device::modify(
+            self.doubly_indirect as usize,
+            0,
+            |indirect2: &mut IndirectBlock| {
+                while (a0 < a1) || (a0 == a1 && b0 < b1) {
+                    if b0 == 0 {
+                        indirect2[a0] = blocks.next().unwrap();
+                    }
+                    block_device::modify(
+                        indirect2[a0] as usize,
+                        0,
+                        |indirect1: &mut IndirectBlock| {
+                            while (a0 < a1 && b0 < Self::INDIRECT_COUNT) || (a0 == a1 && b0 < b1) {
+                                indirect1[b0] = blocks.next().unwrap();
+                                b0 += 1;
+                                current += 1;
+                            }
+
+                            if b0 == Self::INDIRECT_COUNT {
+                                b0 = 0;
+                                a0 += 1;
+                            }
+                        },
+                    )
+                }
+            },
+        );
+
+        current + Self::INDIRECT_BOUND
+    }
+
+    pub fn increase_to(&mut self, new_size: usize, new_blocks: Vec<u32>) {
+        assert!(new_size > self.size());
+        let mut start_block = Self::data_blocks(self.size());
+        self.set_size(new_size);
+        let end_block = Self::data_blocks(new_size);
+
+        let mut blocks_iter = new_blocks.into_iter();
+
+        if start_block < Self::DIRECT_COUNT {
+            start_block = self.fill_from_direct(start_block, end_block, &mut blocks_iter);
+            start_block = self.fill_from_indirect(start_block, end_block, &mut blocks_iter);
+            start_block = self.fill_from_double(start_block, end_block, &mut blocks_iter);
+        } else if start_block < Self::INDIRECT_BOUND {
+            start_block = self.fill_from_indirect(start_block, end_block, &mut blocks_iter);
+            start_block = self.fill_from_double(start_block, end_block, &mut blocks_iter);
+        } else if start_block < Self::DOUBLE_BOUND {
+            start_block = self.fill_from_double(start_block, end_block, &mut blocks_iter);
+        } else {
+            panic!("where the ultra-big size(={}) from?", new_size);
+        }
+
+        assert_eq!(start_block, end_block);
+        assert!(blocks_iter.next().is_none());
+    }
+
+    fn free_from_direct(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut Vec<u32>,
+    ) -> usize {
+        let mut current = start_block;
+        let end = end_block.min(Self::DIRECT_COUNT);
+        while current < end {
+            blocks.push(self.direct_pointer[current]);
+            self.direct_pointer[current] = 0;
+            current += 1;
+        }
+        current
+    }
+
+    fn free_from_indirect(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut Vec<u32>,
+    ) -> usize {
+        // 如果不在自己的范围内
+        if end_block <= Self::DIRECT_COUNT {
+            return start_block;
+        }
+
+        let end = (end_block - Self::DIRECT_COUNT).min(Self::INDIRECT_COUNT);
+        let mut current = start_block - Self::DIRECT_COUNT;
+        let free_indirect = current == 0;
+
+        block_device::modify(
+            self.indirect_pointer as usize,
+            0,
+            |indirect1: &mut IndirectBlock| {
+                while current < end {
+                    blocks.push(indirect1[current]);
+                    current += 1;
+                }
+            },
+        );
+
+        if free_indirect {
+            blocks.push(self.indirect_pointer);
+            self.indirect_pointer = 0;
+        }
+
+        current + Self::DIRECT_COUNT
+    }
+
+    fn free_from_double(
+        &mut self,
+        start_block: usize,
+        end_block: usize,
+        blocks: &mut Vec<u32>,
+    ) -> usize {
+        if end_block <= Self::INDIRECT_BOUND {
+            return start_block;
+        }
+
+        let end = (end_block - Self::INDIRECT_BOUND).min(Self::DOUBLE_COUNT);
+        let mut current = start_block - Self::INDIRECT_BOUND;
+        let free_double = current == 0;
+
+        // free indirect2 from (a0, b0) -> (a1, b1)
+        let mut a0 = current / Self::INDIRECT_COUNT;
+        let mut b0 = current % Self::INDIRECT_COUNT;
+        let a1 = end / Self::INDIRECT_COUNT;
+        let b1 = end % Self::INDIRECT_COUNT;
+        block_device::modify(
+            self.doubly_indirect as usize,
+            0,
+            |indirect2: &mut IndirectBlock| {
+                while (a0 < a1) || (a0 == a1 && b0 < b1) {
+                    if b0 == 0 {
+                        blocks.push(indirect2[a0]);
+                    }
+                    block_device::modify(
+                        indirect2[a0] as usize,
+                        0,
+                        |indirect1: &mut IndirectBlock| {
+                            while (a0 < a1 && b0 < Self::INDIRECT_COUNT) || (a0 == a1 && b0 < b1) {
+                                blocks.push(indirect1[b0]);
+                                b0 += 1;
+                                current += 1;
+                            }
+
+                            if b0 == Self::INDIRECT_COUNT {
+                                b0 = 0;
+                                a0 += 1;
+                            }
+                        },
+                    )
+                }
+            },
+        );
+
+        if free_double {
+            blocks.push(self.doubly_indirect);
+            self.doubly_indirect = 0;
+        }
+
+        current + Self::INDIRECT_BOUND
+    }
+
+    pub fn decrease_to(&mut self, new_size: usize) -> Vec<u32> {
+        assert!(new_size < self.size());
+        let end_block = Self::data_blocks(self.size());
+        self.set_size(new_size);
+        let mut start_block = Self::data_blocks(new_size);
+
+        let mut freed = Vec::new();
+        if start_block < Self::DIRECT_COUNT {
+            start_block = self.free_from_direct(start_block, end_block, &mut freed);
+            start_block = self.free_from_indirect(start_block, end_block, &mut freed);
+            start_block = self.free_from_double(start_block, end_block, &mut freed);
+        } else if start_block < Self::INDIRECT_BOUND {
+            start_block = self.free_from_indirect(start_block, end_block, &mut freed);
+            start_block = self.free_from_double(start_block, end_block, &mut freed);
+        } else if start_block < Self::DOUBLE_BOUND {
+            start_block = self.free_from_double(start_block, end_block, &mut freed);
+        } else {
+            panic!("where the ultra-big size(={}) from?", new_size);
+        }
+
+        assert_eq!(start_block, end_block);
+        freed
     }
 }
 

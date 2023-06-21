@@ -1,6 +1,8 @@
 use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
 
+use crate::{block::DataBlock, block_device, cast_mut};
+
 use super::{
     allocator::Ext2Allocator,
     blockgroup::{self, Ext2BlockGroupDesc},
@@ -34,6 +36,22 @@ impl Ext2Layout {
         }
     }
 
+    pub fn flush(&self) {
+        block_device::modify(0, 1024, |sb: &mut Superblock| {
+            sb.clone_from(&self.superblock.lock());
+        });
+
+        block_device::modify(1, 0, |data: &mut DataBlock| {
+            let count = self.blockgroups.len();
+            let bg_size = core::mem::size_of::<Ext2BlockGroupDesc>();
+            for (idx, bg) in self.blockgroups.iter().enumerate() {
+                let dst = &mut data[idx * bg_size..];
+                let disk_bg = cast_mut!(dst.as_ptr(), Ext2BlockGroupDesc);
+                disk_bg.clone_from(&bg.lock())
+            }
+        });
+    }
+
     pub fn superblock(&self) -> Arc<Mutex<Superblock>> {
         self.superblock.clone()
     }
@@ -49,7 +67,11 @@ impl Ext2Layout {
         self.inodes_per_group
     }
 
-    pub fn root_inode(&self, layout: Arc<Ext2Layout>, allocator: Arc<Ext2Allocator>) -> Inode {
+    pub fn root_inode(
+        &self,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
+    ) -> Inode {
         self.inode_nth(2, layout, allocator).with_parent(2)
     }
 
@@ -57,7 +79,7 @@ impl Ext2Layout {
         &self,
         inode_id: usize,
         layout: Arc<Ext2Layout>,
-        allocator: Arc<Ext2Allocator>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Inode {
         // 拿到所在 block_group 和 inode 内部偏移量
         let (blockgroup_idx, inode_innner_idx) = self.inode_idx(inode_id);
