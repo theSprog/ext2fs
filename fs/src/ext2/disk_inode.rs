@@ -72,16 +72,46 @@ impl Ext2Inode {
     pub const DOUBLE_COUNT: usize = Self::INDIRECT_COUNT * Self::INDIRECT_COUNT;
     pub const DOUBLE_BOUND: usize = Self::INDIRECT_BOUND + Self::DOUBLE_COUNT;
 
-    pub fn init() {
-        todo!()
+    pub fn init(&mut self, filetype: VfsFileType) {
+        self.set_filetype(&filetype);
+        self.set_permissions(&VfsPermissions::empty());
+
+        self.uid = 1000;
+        self.size_low = 0;
+        self.atime = 0;
+        self.ctime = 0;
+        self.mtime = 0;
+        self.dtime = 0;
+        self.gid = 100;
+        self.hard_links = 1;
+        self.sectors_count = 0;
+        self.flags = Flags::empty();
+        self._os_specific_1 = [0; 4];
+        self.direct_pointer = [0; Self::DIRECT_COUNT];
+        self.indirect_pointer = 0;
+        self.doubly_indirect = 0;
+        self.triply_indirect = 0;
+        self.gen_number = 0;
+        self.ext_attribute_block = 0;
+        self.size_high = 0;
+        self.frag_block_addr = 0;
+        self._os_specific_2 = [0; 12];
     }
 
     pub fn filetype(&self) -> VfsFileType {
         self.type_perm.filetype()
     }
 
+    pub fn set_filetype(&mut self, filetype: &VfsFileType) {
+        self.type_perm.set_filetype(filetype)
+    }
+
     pub fn permissions(&self) -> VfsPermissions {
         self.type_perm.permissions()
+    }
+
+    pub fn set_permissions(&mut self, permissions: &VfsPermissions) {
+        self.type_perm.set_permissions(permissions);
     }
 
     pub fn size(&self) -> usize {
@@ -116,6 +146,10 @@ impl Ext2Inode {
 
     pub fn hard_links(&self) -> u16 {
         self.hard_links
+    }
+
+    pub fn inc_hard_links(&mut self) {
+        self.hard_links += 1;
     }
 
     fn block_id_for(&self, inner_idx: u32) -> u32 {
@@ -552,10 +586,22 @@ impl TypePerm {
         }
     }
 
+    pub fn set_filetype(&mut self, filetype: &VfsFileType) {
+        match filetype {
+            VfsFileType::RegularFile => self.insert(Self::FILE),
+            VfsFileType::Directory => self.insert(Self::DIRECTORY),
+            VfsFileType::CharDev => self.insert(Self::CHAR_DEVICE),
+            VfsFileType::BlockDev => self.insert(Self::BLOCK_DEVICE),
+            VfsFileType::FIFO => self.insert(Self::FIFO),
+            VfsFileType::Socket => self.insert(Self::SOCKET),
+            VfsFileType::SymbolicLink => self.insert(Self::SYMLINK),
+        };
+    }
+
     pub fn permissions(&self) -> VfsPermissions {
         let mut user = 0u8;
         let mut group = 0u8;
-        let mut other = 0u8;
+        let mut others = 0u8;
         if self.contains(Self::U_READ) {
             user |= 0b100;
         }
@@ -575,15 +621,42 @@ impl TypePerm {
             group |= 0b001;
         }
         if self.contains(Self::O_READ) {
-            other |= 0b100;
+            others |= 0b100;
         }
         if self.contains(Self::O_WRITE) {
-            other |= 0b010;
+            others |= 0b010;
         }
         if self.contains(Self::O_EXEC) {
-            other |= 0b001;
+            others |= 0b001;
         }
-        VfsPermissions::new(user.into(), group.into(), other.into())
+        VfsPermissions::new(user, group, others)
+    }
+
+    fn set_permissions(&mut self, permissions: &VfsPermissions) {
+        let user = permissions.user();
+        let group = permissions.group();
+        let others = permissions.others();
+        self.set_user(user);
+        self.set_group(group);
+        self.set_others(others);
+    }
+
+    fn set_user(&mut self, user: VfsPermission) {
+        self.set(Self::U_READ, user.read());
+        self.set(Self::U_WRITE, user.write());
+        self.set(Self::U_EXEC, user.execute());
+    }
+
+    fn set_group(&mut self, group: VfsPermission) {
+        self.set(Self::G_READ, group.read());
+        self.set(Self::G_WRITE, group.write());
+        self.set(Self::G_EXEC, group.execute());
+    }
+
+    fn set_others(&mut self, others: VfsPermission) {
+        self.set(Self::O_READ, others.read());
+        self.set(Self::O_WRITE, others.write());
+        self.set(Self::O_EXEC, others.execute());
     }
 }
 

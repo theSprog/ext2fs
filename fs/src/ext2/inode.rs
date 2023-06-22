@@ -32,13 +32,35 @@ impl Inode {
     pub(crate) fn new(
         inode_id: usize,
         address: Address,
+        filetype: VfsFileType,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
+    ) -> Self {
+        block_device::modify(
+            address.block_id(),
+            address.offset(),
+            |ext2_inode: &mut Ext2Inode| ext2_inode.init(filetype),
+        );
+        Self {
+            address,
+            inode_id,
+            filetype,
+            layout,
+            allocator,
+            parent_id: None,
+        }
+    }
+
+    pub(crate) fn read(
+        inode_id: usize,
+        address: Address,
         layout: Arc<Ext2Layout>,
         allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Inode {
         let filetype = block_device::read(
             address.block_id(),
             address.offset(),
-            |disk_inode: &Ext2Inode| disk_inode.filetype(),
+            |ext2_inode: &Ext2Inode| ext2_inode.filetype(),
         );
 
         Self {
@@ -94,6 +116,10 @@ impl Inode {
             self.address.offset(),
             |disk_inode: &Ext2Inode| disk_inode.timestamp(),
         )
+    }
+
+    pub fn filetype(&self) -> VfsFileType {
+        self.filetype
     }
 
     pub fn is_file(&self) -> bool {
@@ -204,6 +230,11 @@ impl VfsInode for Inode {
         // 有趣的是, 如果函数重名(比如这里的 metadata 和 Inode 的 metadata)
         // 并不会发生冲突, 而是结构体方法优先
         Box::new(self.metadata())
+    }
+
+    fn set_permissions(&mut self, permissions: &VfsPermissions) -> VfsResult<()> {
+        self.modify_disk_inode(|disk_inode| disk_inode.set_permissions(permissions));
+        Ok(())
     }
 
     fn read_symlink(&self) -> String {

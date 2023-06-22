@@ -60,34 +60,51 @@ impl VFS {
         let vpath = Self::parse_path(path.as_ref())?;
         self.fs.exists(vpath)
     }
+
     pub fn metadata<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsMetadata>> {
         let vpath = Self::parse_path(path.as_ref())?;
         self.fs.metadata(vpath)
     }
+
+    pub fn link<T: AsRef<str>>(&self, to_path: T, from_path: T) -> VfsResult<()> {
+        let vpath_to = Self::parse_path(to_path.as_ref())?;
+        let vpath_from = Self::parse_path(from_path.as_ref())?;
+        self.fs.link(vpath_to, vpath_from)
+    }
+
     pub fn open_file<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
         let vpath = Self::parse_path(path.as_ref())?;
         self.fs.open_file(vpath)
     }
+
     pub fn create_file<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
         let vpath = Self::parse_path(path.as_ref())?;
-        todo!()
+        self.fs.create_file(vpath)
     }
+
     pub fn remove_file<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
     }
+
     pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
     }
+
     pub fn remove_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
     }
 
-    pub fn flush(&self) -> VfsResult<()> {
-        self.fs.flush()?;
+    pub fn flush(&self) {
+        self.fs.flush();
         block_device::flush();
-        Ok(())
+    }
+}
+
+impl Drop for VFS {
+    fn drop(&mut self) {
+        self.flush();
     }
 }

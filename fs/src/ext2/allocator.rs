@@ -48,8 +48,22 @@ impl Ext2Allocator {
         self.superblock.lock().free_inodes_count
     }
 
-    pub(crate) fn alloc_inode(&self, is_dir: bool) -> VfsResult<u32> {
-        todo!()
+    pub(crate) fn alloc_inode(&mut self, is_dir: bool) -> VfsResult<u32> {
+        if self.free_inodes() == 0 {
+            return Err(IOError::new(IOErrorKind::NoFreeInodes).into());
+        }
+
+        // 有可用 inode
+        self.dec_free_inode();
+        for bg in self.blockgroups.iter() {
+            let mut bg: spin::MutexGuard<'_, Ext2BlockGroupDesc> = bg.lock();
+            if bg.free_blocks_count == 0 {
+                continue;
+            }
+            return Ok(bg.alloc_inode(is_dir));
+        }
+
+        unreachable!()
     }
     pub(crate) fn dealloc_inode(&self, block_id: usize, is_dir: bool) -> VfsResult<()> {
         todo!()

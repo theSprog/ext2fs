@@ -1,9 +1,12 @@
 use core::{fmt::Display, slice::Iter};
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::ops::Deref;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VfsPath {
     from_root: bool,
     inner: Vec<String>,
@@ -27,8 +30,22 @@ impl VfsPath {
     pub fn push(&mut self, next: &str) {
         self.inner.push(next.to_string());
     }
+
+    pub fn parent(&self) -> Self {
+        if self.is_from_root() {
+            let mut new_inner = self.inner.clone();
+            new_inner.pop();
+            Self {
+                from_root: true,
+                inner: new_inner,
+            }
+        } else {
+            todo!()
+        }
+    }
 }
 
+// 实现 display 也实现了 to_string
 impl Display for VfsPath {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let joined = self.inner.join("/");
@@ -60,5 +77,12 @@ impl From<&str> for VfsPath {
                 .map(String::from)
                 .collect(),
         }
+    }
+}
+
+// 将 &VfsPath 转为 String
+impl From<&VfsPath> for String {
+    fn from(val: &VfsPath) -> Self {
+        val.to_string()
     }
 }

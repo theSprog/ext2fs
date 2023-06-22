@@ -81,6 +81,25 @@ impl FileSystem for Ext2FileSystem {
         Ok(Box::new(target.metadata()))
     }
 
+    fn link(&self, to: VfsPath, from: VfsPath) -> VfsResult<()> {
+        let root_inode = self.root_inode();
+        // to 必须要存在
+        let target = root_inode.walk(&to)?;
+        let mut dir_inode = root_inode.walk(&from.parent())?;
+
+        dir_inode.insert_hardlink(&from, &to, &target)?;
+        Ok(())
+    }
+
+    fn symlink(&self, to: VfsPath, from: VfsPath) -> VfsResult<()> {
+        let root_inode = self.root_inode();
+        // to 可以不存在
+        let mut dir_inode = root_inode.walk(&from.parent())?;
+
+        dir_inode.insert_entry(&from, VfsFileType::SymbolicLink)?;
+        Ok(())
+    }
+
     fn open_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {
         let root_inode = self.root_inode();
         let target = root_inode.walk(&path)?;
@@ -88,7 +107,9 @@ impl FileSystem for Ext2FileSystem {
     }
 
     fn create_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {
-        todo!()
+        let root_inode = self.root_inode();
+        let mut dir_inode = root_inode.walk(&path.parent())?;
+        dir_inode.insert_entry(&path, VfsFileType::RegularFile)
     }
 
     fn remove_file(&self, path: VfsPath) -> VfsResult<()> {
@@ -103,8 +124,7 @@ impl FileSystem for Ext2FileSystem {
         todo!()
     }
 
-    fn flush(&self) -> VfsResult<()> {
+    fn flush(&self) {
         self.flush();
-        Ok(())
     }
 }

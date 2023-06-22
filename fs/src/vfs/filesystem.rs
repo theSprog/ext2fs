@@ -14,6 +14,8 @@ pub trait FileSystem: Debug + Display + Sync + Send + 'static {
     fn read_dir(&self, path: VfsPath) -> VfsResult<Vec<Box<dyn VfsDirEntry>>>;
     fn exists(&self, path: VfsPath) -> VfsResult<bool>;
     fn metadata(&self, path: VfsPath) -> VfsResult<Box<dyn VfsMetadata>>;
+    fn link(&self, to: VfsPath, from: VfsPath) -> VfsResult<()>;
+    fn symlink(&self, to: VfsPath, from: VfsPath) -> VfsResult<()>;
     fn open_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>>;
     fn create_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>>;
     fn remove_file(&self, path: VfsPath) -> VfsResult<()>;
@@ -35,7 +37,5 @@ pub trait FileSystem: Debug + Display + Sync + Send + 'static {
     //     Err(VfsErrorKind::NotSupported.into())
     // }
 
-    fn flush(&self) -> VfsResult<()> {
-        Err(VfsErrorKind::NotSupported.into())
-    }
+    fn flush(&self);
 }

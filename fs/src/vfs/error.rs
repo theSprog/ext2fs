@@ -6,11 +6,8 @@ use core::{error, fmt};
 
 use alloc::string::String;
 
-/// The only way to create a VfsError is via a VfsErrorKind
-/// The result type of this crate
 pub type VfsResult<T> = core::result::Result<T, VfsError>;
 
-/// The error type of this crate
 #[derive(Debug)]
 pub struct VfsError {
     path: String,
@@ -28,7 +25,6 @@ impl VfsError {
     }
 }
 
-/// This conversion implements certain normalizations
 impl From<VfsErrorKind> for VfsError {
     fn from(kind: VfsErrorKind) -> Self {
         let path = match &kind {
@@ -152,8 +148,11 @@ impl IOError {
         }
     }
 
-    pub fn with_path(self, path: String) -> Self {
-        Self { path, ..self }
+    pub fn with_path<T: Into<String>>(self, path: T) -> Self {
+        Self {
+            path: path.into(),
+            ..self
+        }
     }
 
     pub fn path(&self) -> &str {
@@ -179,4 +178,5 @@ pub enum IOErrorKind {
     TooManyLinks,
     InvalidFilename,
     NoFreeBlocks,
+    NoFreeInodes,
 }

@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
 
-use crate::{block::DataBlock, block_device, cast_mut};
+use crate::{block::DataBlock, block_device, cast_mut, vfs::meta::VfsFileType};
 
 use super::{
     allocator::Ext2Allocator,
@@ -82,9 +82,21 @@ impl Ext2Layout {
         allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Inode {
         // 拿到所在 block_group 和 inode 内部偏移量
-        let (blockgroup_idx, inode_innner_idx) = self.inode_idx(inode_id);
+        let (blockgroup_idx, inode_inner_idx) = self.inode_idx(inode_id);
         let bg = self.blockgroups.get(blockgroup_idx).unwrap().lock();
-        bg.get_inode(inode_id, inode_innner_idx, layout, allocator)
+        bg.get_inode(inode_id, inode_inner_idx, layout, allocator)
+    }
+
+    pub fn new_inode_nth(
+        &self,
+        inode_id: usize,
+        filetype: VfsFileType,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
+    ) -> Inode {
+        let (blockgroup_idx, inode_inner_idx) = self.inode_idx(inode_id);
+        let bg = self.blockgroups.get(blockgroup_idx).unwrap().lock();
+        bg.new_inode(inode_id, inode_inner_idx, filetype, layout, allocator)
     }
 
     fn inode_idx(&self, inode_id: usize) -> (usize, usize) {

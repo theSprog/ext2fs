@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 use core::fmt::Display;
 
-pub trait VfsMetadata: Debug + Display {
+pub trait VfsMetadata: Debug + Display + 'static {
     fn filetype(&self) -> VfsFileType;
     fn permissions(&self) -> VfsPermissions;
     fn size(&self) -> u64;
@@ -57,12 +57,50 @@ pub struct VfsPermissions {
 }
 
 impl VfsPermissions {
-    pub fn new(user: VfsPermission, group: VfsPermission, others: VfsPermission) -> Self {
+    pub fn new<T: Into<VfsPermission>>(user: T, group: T, others: T) -> Self {
         Self {
-            user,
-            group,
-            others,
+            user: user.into(),
+            group: group.into(),
+            others: others.into(),
         }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            user: VfsPermission::empty(),
+            group: VfsPermission::empty(),
+            others: VfsPermission::empty(),
+        }
+    }
+
+    // 单独修改
+    pub fn with_user<T: Into<VfsPermission>>(self, user: T) -> Self {
+        Self {
+            user: user.into(),
+            ..self
+        }
+    }
+    pub fn with_group<T: Into<VfsPermission>>(self, group: T) -> Self {
+        Self {
+            group: group.into(),
+            ..self
+        }
+    }
+    pub fn with_others<T: Into<VfsPermission>>(self, others: T) -> Self {
+        Self {
+            others: others.into(),
+            ..self
+        }
+    }
+
+    pub fn user(&self) -> VfsPermission {
+        self.user
+    }
+    pub fn group(&self) -> VfsPermission {
+        self.group
+    }
+    pub fn others(&self) -> VfsPermission {
+        self.others
     }
 }
 
@@ -88,6 +126,24 @@ impl VfsPermission {
             write,
             execute,
         }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            read: false,
+            write: false,
+            execute: false,
+        }
+    }
+
+    pub fn read(&self) -> bool {
+        self.read
+    }
+    pub fn write(&self) -> bool {
+        self.write
+    }
+    pub fn execute(&self) -> bool {
+        self.execute
     }
 }
 

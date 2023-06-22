@@ -6,6 +6,7 @@ use spin::Mutex;
 use crate::{
     block::{self, DataBlock},
     block_device, cast,
+    vfs::meta::VfsFileType,
 };
 
 use super::{
@@ -50,7 +51,7 @@ impl Ext2BlockGroupDesc {
         })
     }
 
-    fn bitmap_block_bid(&self) -> usize {
+    fn block_bitmap_bid(&self) -> usize {
         self.block_bitmap_addr as usize
     }
 
@@ -62,23 +63,57 @@ impl Ext2BlockGroupDesc {
         self.inode_table_block as usize
     }
 
+    /// inode_inner_idx 指的是 inode 在 block group 中的内部偏移
     pub fn get_inode(
         &self,
         inode_id: usize,
-        inode_innner_idx: usize,
+        inode_inner_idx: usize,
         layout: Arc<Ext2Layout>,
         allocator: Arc<Mutex<Ext2Allocator>>,
     ) -> Inode {
         let address = Address::new(
             self.inode_table_bid(),
-            (inode_innner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
+            (inode_inner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
         );
-        Inode::new(inode_id, address, layout, allocator)
+        Inode::read(inode_id, address, layout, allocator)
+    }
+
+    pub fn new_inode(
+        &self,
+        inode_id: usize,
+        inode_inner_idx: usize,
+        filetype: VfsFileType,
+        layout: Arc<Ext2Layout>,
+        allocator: Arc<Mutex<Ext2Allocator>>,
+    ) -> Inode {
+        let address = Address::new(
+            self.inode_table_bid(),
+            (inode_inner_idx * core::mem::size_of::<Ext2Inode>()) as isize,
+        );
+        Inode::new(inode_id, address, filetype, layout, allocator)
     }
 
     // 调用该函数必然成功, 所有的检查应该在外部完成
     pub fn alloc_inode(&mut self, is_dir: bool) -> u32 {
-        todo!()
+        assert_ne!(self.free_inodes_count, 0);
+
+        block_device::modify(self.inode_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
+            use core::ops::Not;
+            for (pos, bits) in bitmap.iter_mut().enumerate() {
+                let neg_bits = bits.not();
+                while neg_bits != 0 {
+                    let inner_pos = neg_bits.trailing_zeros() as usize;
+                    *bits |= 1 << inner_pos;
+                    // 不要忘记更新 free_inodes_count
+                    self.free_inodes_count -= 1;
+
+                    // 特别注意 inode 从 1 开始计数
+                    return (pos * UNIT_WIDTH + inner_pos + 1) as u32;
+                }
+            }
+
+            unreachable!()
+        })
     }
 
     pub fn dealloc_inode(&mut self, idx: usize, is_dir: bool) {
@@ -90,32 +125,28 @@ impl Ext2BlockGroupDesc {
     pub fn alloc_blocks(&mut self, num: usize) -> Vec<u32> {
         let mut vec = Vec::new();
         // 不能提前更新 free_blocks_count 因为不一定有 num 个满足
-        block_device::modify(
-            self.bitmap_block_bid() as usize,
-            0,
-            |bitmap: &mut BitmapBlock| {
-                use core::ops::Not;
-                for (pos, bits) in bitmap.iter_mut().enumerate() {
-                    let mut neg_bits = bits.not();
-                    while neg_bits != 0 {
-                        let inner_pos = neg_bits.trailing_zeros() as usize;
-                        *bits |= 1 << inner_pos;
-                        // 不要忘记更新 free_blocks_count
-                        self.free_blocks_count -= 1;
-                        vec.push((pos * UNIT_WIDTH + inner_pos) as u32);
+        block_device::modify(self.block_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
+            use core::ops::Not;
+            for (pos, bits) in bitmap.iter_mut().enumerate() {
+                let mut neg_bits = bits.not();
+                while neg_bits != 0 {
+                    let inner_pos = neg_bits.trailing_zeros() as usize;
+                    *bits |= 1 << inner_pos;
+                    // 不要忘记更新 free_blocks_count
+                    self.free_blocks_count -= 1;
+                    vec.push((pos * UNIT_WIDTH + inner_pos) as u32);
 
-                        if vec.len() == num {
-                            return vec;
-                        }
-
-                        neg_bits &= neg_bits - 1;
+                    if vec.len() == num {
+                        return vec;
                     }
-                }
 
-                // num 没有完全满足
-                return vec;
-            },
-        )
+                    neg_bits &= neg_bits - 1;
+                }
+            }
+
+            // num 没有完全满足
+            vec
+        })
     }
 
     #[inline]
@@ -132,17 +163,13 @@ impl Ext2BlockGroupDesc {
         // 提前批量更新 free_blocks_count
         self.free_blocks_count += blocks.len() as u16;
 
-        block_device::modify(
-            self.bitmap_block_bid() as usize,
-            0,
-            |bitmap: &mut BitmapBlock| {
-                for bid in blocks {
-                    let (pos, inner_pos) = self.decomposition(*bid);
-                    assert_ne!(bitmap[pos] & (1u64 << inner_pos), 0);
-                    bitmap[pos] -= 1u64 << inner_pos;
-                }
-            },
-        );
+        block_device::modify(self.block_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
+            for bid in blocks {
+                let (pos, inner_pos) = self.decomposition(*bid);
+                assert_ne!(bitmap[pos] & (1u64 << inner_pos), 0);
+                bitmap[pos] -= 1u64 << inner_pos;
+            }
+        });
     }
 }
 
