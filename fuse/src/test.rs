@@ -4,7 +4,7 @@ use fs::{
     block,
     ext2::Ext2FileSystem,
     time::LocalTime,
-    vfs::{VfsPath, VFS},
+    vfs::{meta::VfsPermissions, VfsPath, VFS},
 };
 use spin::Mutex;
 
@@ -120,7 +120,28 @@ fn test_rw() {
         random_str_test(rng.gen_range(0..1500 * block_size));
     }
 
-    vfs.flush().unwrap();
+    vfs.flush();
+}
+
+#[test]
+fn test_create_file() {
+    let vfs = gen_vfs();
+
+    for i in 0..11 {
+        let path = format!("/new_file{}.c", i);
+        let mut file = vfs.create_file(path).unwrap();
+        let permissions = VfsPermissions::new(0b111, 0b101, 0b000);
+        file.set_permissions(&permissions).unwrap();
+    }
+
+    vfs.flush();
+}
+
+#[test]
+fn test_link() {
+    // link 包含两种: 软硬连接
+    let vfs = gen_vfs();
+    vfs.link("/new_file.c", "/new_link2").unwrap();
 }
 
 #[test]
