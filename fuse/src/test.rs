@@ -139,9 +139,18 @@ fn test_create_file() {
 
 #[test]
 fn test_link() {
-    // link 包含两种: 软硬连接
     let vfs = gen_vfs();
     vfs.link("/new_file.c", "/new_link2").unwrap();
+}
+
+#[test]
+fn test_symlink() {
+    let vfs = gen_vfs();
+    vfs.symlink("/new_file.c", "/new_symlink").unwrap();
+    let mut new_file = vfs.open_file("/new_symlink").unwrap();
+    new_file
+        .write_at(0, "hello world, fuck you world".as_bytes())
+        .unwrap();
 }
 
 #[test]

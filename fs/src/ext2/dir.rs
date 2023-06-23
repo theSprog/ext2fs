@@ -1,15 +1,15 @@
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 
 use alloc::{
     boxed::Box,
     string::{String, ToString},
     sync::Arc,
-    vec::{self, Vec},
+    vec::Vec,
 };
 use spin::Mutex;
 
 use crate::{
-    cast, cast_mut, ceil,
+    cast_mut, ceil,
     vfs::{
         error::{IOError, IOErrorKind, VfsErrorKind, VfsResult},
         meta::VfsFileType,
@@ -17,12 +17,7 @@ use crate::{
     },
 };
 
-use super::{
-    allocator::{self, Ext2Allocator},
-    disk_inode::{Ext2Inode, TypePerm},
-    inode::Inode,
-    layout::Ext2Layout,
-};
+use super::{allocator::Ext2Allocator, disk_inode::Ext2Inode, inode::Inode, layout::Ext2Layout};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -213,7 +208,7 @@ impl Dir {
 
     pub(crate) fn entries(&self) -> Vec<DirEntry> {
         let mut entries = Vec::new();
-        for (offset, entry) in self.split() {
+        for (_, entry) in self.split() {
             let entry_id = entry.inode_id as usize;
             let name = String::from_utf8(entry.name_bytes().to_vec()).unwrap();
             entries.push(DirEntry::new(
@@ -403,29 +398,8 @@ impl Inode {
         match filetype {
             VfsFileType::RegularFile => self.insert_file_entry(filename),
             VfsFileType::Directory => self.insert_dir_entry(filename),
-            // VfsFileType::SymbolicLink => self.insert_symlink_entry(filename),
             _ => todo!("why got {}", filetype),
         }
-    }
-
-    // hardlink 不会申请 inode
-    pub fn insert_hardlink(
-        &mut self,
-        path_from: &VfsPath,
-        path_to: &VfsPath,
-        target_inode: &Inode,
-    ) -> VfsResult<()> {
-        self.check_valid_insert(path_from)?;
-
-        // 除了通用检查外, 硬链接只针对 file
-        if !target_inode.is_file() {
-            return Err(IOError::new(IOErrorKind::NotAFile)
-                .with_path(path_to)
-                .into());
-        }
-
-        let filename = path_from.last().unwrap();
-        self.insert_hardlink_entry(filename, target_inode)
     }
 
     /// 1. 申请一个 Inode
@@ -451,24 +425,6 @@ impl Inode {
         Ok(Box::new(inode))
     }
 
-    fn insert_hardlink_entry(&mut self, filename: &str, target_inode: &Inode) -> VfsResult<()> {
-        // 目录下插入新目录项
-        self.modify_disk_inode(|ext2_inode| {
-            let mut dir =
-                Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
-            // 建立 filename -> inode_id 的映射关系
-            dir.insert_entry(filename, target_inode.inode_id(), target_inode.filetype());
-            // dir 仅仅是内存中的数据结构, 因此需要写回磁盘
-            dir.write_to_disk(ext2_inode);
-        });
-
-        // 目标 inode 硬链接增加
-        target_inode.modify_disk_inode(|ext2_inode| {
-            ext2_inode.inc_hard_links();
-        });
-        Ok(())
-    }
-
     /// 1. 申请一个 Inode
     /// 2. 在 dirname 下新建两个目录项, 分别是 . 和 .., 注意硬链接变化
     /// 3. 在目录中创建一个目录项
@@ -486,5 +442,69 @@ impl Inode {
         // });
 
         Ok(Box::new(inode))
+    }
+
+    // hardlink 相比于其他 entry 区别: 不会申请 inode
+    pub fn insert_hardlink(
+        &mut self,
+        path_from: &VfsPath,
+        path_to: &VfsPath,
+        target_inode: &Inode,
+    ) -> VfsResult<()> {
+        self.check_valid_insert(path_from)?;
+
+        // 除了通用检查外, 硬链接只针对 file
+        if !target_inode.is_file() {
+            return Err(IOError::new(IOErrorKind::NotAFile)
+                .with_path(path_to)
+                .into());
+        }
+
+        let filename = path_from.last().unwrap();
+        self.insert_hardlink_entry(filename, target_inode)
+    }
+
+    /// to 可能会不存在, 因此不能返回 to 的 inode,
+    /// 另外也不能返回 Symlink 的 Inode, 因为这对用户没有意义
+    pub fn insert_symlink(&mut self, path_from: &VfsPath, path_to: &VfsPath) -> VfsResult<()> {
+        self.check_valid_insert(path_from)?;
+        let filename = path_from.last().unwrap();
+        let inode_id = self.allocator().lock().alloc_inode(false)? as usize;
+        let mut inode = self.layout().new_inode_nth(
+            inode_id,
+            VfsFileType::SymbolicLink,
+            self.layout(),
+            self.allocator(),
+        );
+        inode.write_symlink(path_to)?;
+
+        self.modify_disk_inode(|ext2_inode| {
+            let mut dir =
+                Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
+            // 建立 filename -> inode_id 的映射关系
+            dir.insert_entry(filename, inode_id, VfsFileType::SymbolicLink);
+            // dir 仅仅是内存中的数据结构, 因此需要写回磁盘
+            dir.write_to_disk(ext2_inode);
+        });
+
+        Ok(())
+    }
+
+    fn insert_hardlink_entry(&mut self, filename: &str, target_inode: &Inode) -> VfsResult<()> {
+        // 目录下插入新目录项
+        self.modify_disk_inode(|ext2_inode| {
+            let mut dir =
+                Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
+            // 建立 filename -> inode_id 的映射关系
+            dir.insert_entry(filename, target_inode.inode_id(), target_inode.filetype());
+            // dir 仅仅是内存中的数据结构, 因此需要写回磁盘
+            dir.write_to_disk(ext2_inode);
+        });
+
+        // 目标 inode 硬链接增加
+        target_inode.modify_disk_inode(|ext2_inode| {
+            ext2_inode.inc_hard_links();
+        });
+        Ok(())
     }
 }

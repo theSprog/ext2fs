@@ -1,6 +1,6 @@
 use core::fmt::{Debug, Display};
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 use super::{
     dir::VfsDirEntry,

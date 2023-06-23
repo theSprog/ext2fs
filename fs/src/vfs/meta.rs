@@ -73,6 +73,14 @@ impl VfsPermissions {
         }
     }
 
+    pub fn all() -> Self {
+        Self {
+            user: VfsPermission::all(),
+            group: VfsPermission::all(),
+            others: VfsPermission::all(),
+        }
+    }
+
     // 单独修改
     pub fn with_user<T: Into<VfsPermission>>(self, user: T) -> Self {
         Self {
@@ -133,6 +141,14 @@ impl VfsPermission {
             read: false,
             write: false,
             execute: false,
+        }
+    }
+
+    pub fn all() -> Self {
+        Self {
+            read: true,
+            write: true,
+            execute: true,
         }
     }
 

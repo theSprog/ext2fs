@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 
-use super::{meta::VfsMetadata, VfsInode};
+use super::VfsInode;
 
 pub trait VfsDirEntry {
     fn name(&self) -> &str;

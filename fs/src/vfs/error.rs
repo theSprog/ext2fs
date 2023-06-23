@@ -1,8 +1,7 @@
 //! Error and Result definitions
 
-use super::io;
 use crate::alloc::string::ToString;
-use core::{error, fmt};
+use core::fmt;
 
 use alloc::string::String;
 
@@ -171,6 +170,7 @@ pub enum IOErrorKind {
     NotADirectory,
     NotAFile,
     NotASymlink,
+    TooLongTargetSymlink,
     DirectoryNotEmpty,
     IsADirectory,
     TooLargeFile,

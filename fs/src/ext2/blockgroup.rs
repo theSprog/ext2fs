@@ -41,7 +41,7 @@ impl Ext2BlockGroupDesc {
         block_device::read(1, 0, |data: &DataBlock| {
             let mut vec = Vec::new();
             let mut offset = 0;
-            for i in 0..count {
+            for _ in 0..count {
                 let current = &data[offset..];
                 let desc = cast!(current.as_ptr(), Ext2BlockGroupDesc);
                 vec.push(desc.clone());
@@ -106,6 +106,10 @@ impl Ext2BlockGroupDesc {
                     *bits |= 1 << inner_pos;
                     // 不要忘记更新 free_inodes_count
                     self.free_inodes_count -= 1;
+
+                    if is_dir {
+                        self.dirs_count += 1;
+                    }
 
                     // 特别注意 inode 从 1 开始计数
                     return (pos * UNIT_WIDTH + inner_pos + 1) as u32;

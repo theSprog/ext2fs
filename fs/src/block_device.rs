@@ -10,8 +10,6 @@ pub trait BlockDevice: Send + Sync + Any {
     fn write_block(&self, block_id: usize, buf: &[u8]);
 }
 
-// easy-fs/src/block_cache.rs
-
 pub struct BlockCache {
     cache: [u8; block::SIZE],
     block_id: usize,

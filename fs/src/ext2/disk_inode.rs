@@ -74,7 +74,11 @@ impl Ext2Inode {
 
     pub fn init(&mut self, filetype: VfsFileType) {
         self.set_filetype(&filetype);
-        self.set_permissions(&VfsPermissions::empty());
+        if filetype.is_symlink() {
+            self.set_permissions(&VfsPermissions::all());
+        } else {
+            self.set_permissions(&VfsPermissions::empty());
+        }
 
         self.uid = 1000;
         self.size_low = 0;

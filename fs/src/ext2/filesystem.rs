@@ -1,17 +1,9 @@
 use core::fmt::{self, Display};
 
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
 use spin::Mutex;
 
-use crate::{
-    block_device::{self, BlockDevice},
-    ext2::{allocator, superblock},
-};
+use crate::block_device::{self, BlockDevice};
 
 use crate::vfs::{error::VfsResult, meta::*, VfsDirEntry, VfsInode, VfsPath};
 
@@ -93,11 +85,9 @@ impl FileSystem for Ext2FileSystem {
 
     fn symlink(&self, to: VfsPath, from: VfsPath) -> VfsResult<()> {
         let root_inode = self.root_inode();
-        // to 可以不存在
         let mut dir_inode = root_inode.walk(&from.parent())?;
 
-        dir_inode.insert_entry(&from, VfsFileType::SymbolicLink)?;
-        Ok(())
+        dir_inode.insert_symlink(&from, &to)
     }
 
     fn open_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {

@@ -4,10 +4,7 @@ use spin::Mutex;
 use crate::{block::DataBlock, block_device, cast_mut, vfs::meta::VfsFileType};
 
 use super::{
-    allocator::Ext2Allocator,
-    blockgroup::{self, Ext2BlockGroupDesc},
-    inode::Inode,
-    superblock::{self, Superblock},
+    allocator::Ext2Allocator, blockgroup::Ext2BlockGroupDesc, inode::Inode, superblock::Superblock,
 };
 
 #[derive(Debug)]
@@ -42,7 +39,6 @@ impl Ext2Layout {
         });
 
         block_device::modify(1, 0, |data: &mut DataBlock| {
-            let count = self.blockgroups.len();
             let bg_size = core::mem::size_of::<Ext2BlockGroupDesc>();
             for (idx, bg) in self.blockgroups.iter().enumerate() {
                 let dst = &mut data[idx * bg_size..];

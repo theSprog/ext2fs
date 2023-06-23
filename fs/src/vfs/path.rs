@@ -1,4 +1,4 @@
-use core::{fmt::Display, slice::Iter};
+use core::fmt::Display;
 
 use alloc::{
     string::{String, ToString},

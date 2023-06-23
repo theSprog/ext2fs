@@ -1,18 +1,15 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
-use lazy_static::__Deref;
 use spin::Mutex;
 
-use crate::vfs::error::{IOError, IOErrorKind, VfsResult};
+use crate::vfs::error::VfsResult;
 use crate::vfs::meta::{VfsFileType, VfsMetadata, VfsTimeStamp};
-use crate::vfs::{VfsDirEntry, VfsInode, VfsPath};
+use crate::vfs::VfsInode;
 use crate::{block_device, vfs::meta::VfsPermissions};
 
 use super::address::Address;
 use super::allocator::Ext2Allocator;
-use super::dir::Dir;
 use super::disk_inode::Ext2Inode;
 use super::layout::Ext2Layout;
 use super::metadata::Ext2Metadata;
@@ -41,6 +38,7 @@ impl Inode {
             address.offset(),
             |ext2_inode: &mut Ext2Inode| ext2_inode.init(filetype),
         );
+        
         Self {
             address,
             inode_id,

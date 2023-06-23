@@ -9,11 +9,7 @@ pub mod meta;
 
 use core::fmt::Display;
 
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 
 pub use dir::VfsDirEntry;
 pub use filesystem::FileSystem;
@@ -72,6 +68,12 @@ impl VFS {
         self.fs.link(vpath_to, vpath_from)
     }
 
+    pub fn symlink<T: AsRef<str>>(&self, to_path: T, from_path: T) -> VfsResult<()> {
+        let vpath_to = Self::parse_path(to_path.as_ref())?;
+        let vpath_from = Self::parse_path(from_path.as_ref())?;
+        self.fs.symlink(vpath_to, vpath_from)
+    }
+
     pub fn open_file<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
         let vpath = Self::parse_path(path.as_ref())?;
         self.fs.open_file(vpath)
@@ -82,12 +84,12 @@ impl VFS {
         self.fs.create_file(vpath)
     }
 
-    pub fn remove_file<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+    pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
     }
 
-    pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+    pub fn remove_file<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
         todo!()
     }
