@@ -19,7 +19,7 @@ pub use path::VfsPath;
 use crate::block_device;
 
 use self::{
-    error::{VfsErrorKind, VfsResult},
+    error::{VfsError, VfsErrorKind, VfsResult},
     meta::VfsMetadata,
 };
 
@@ -96,6 +96,11 @@ impl VFS {
 
     pub fn remove_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
+        // 在本文件系统下删除根目录是不允许的
+        if vpath.is_empty() {
+            let err: VfsError = VfsErrorKind::InvalidPath(path.as_ref().to_string()).into();
+            return Err(err.with_additional("Forbidden to remove root directory!"));
+        }
         self.fs.remove_dir(vpath)
     }
 

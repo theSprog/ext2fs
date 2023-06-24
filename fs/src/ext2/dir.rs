@@ -149,6 +149,12 @@ impl DirEntry {
             allocator,
         }
     }
+
+    pub(crate) fn inode(&self) -> Inode {
+        self.layout
+            .inode_nth(self.inode_id, self.layout.clone(), self.allocator.clone())
+            .with_parent(self.parent_id)
+    }
 }
 
 impl Debug for DirEntry {
@@ -166,11 +172,7 @@ impl VfsDirEntry for DirEntry {
     }
 
     fn inode(&self) -> Box<dyn VfsInode> {
-        Box::new(
-            self.layout
-                .inode_nth(self.inode_id, self.layout.clone(), self.allocator.clone())
-                .with_parent(self.parent_id),
-        )
+        Box::new(self.inode())
     }
 }
 
@@ -618,15 +620,60 @@ impl Inode {
             // 释放目标文件的存储空间
             target_inode.set_len(0)?;
             // 释放目标文件对应的 inode, 在 bitmap 上清除位后, 对应的 inode 即不可用
-            target_inode
-                .allocator()
+            self.allocator()
                 .lock()
                 .dealloc_inode(target_inode.inode_id() as u32, false)?;
         };
         Ok(())
     }
 
-    fn remove_dir_entry(&mut self, dirname: &str, target_inode: &Inode) -> VfsResult<()> {
-        todo!()
+    fn remove_symlink_entry(&mut self, filename: &str, target_inode: &mut Inode) -> VfsResult<()> {
+        // symlink 只需要删除目录项 和 inode 即可
+        self.unlink(filename, &target_inode);
+        self.allocator()
+            .lock()
+            .dealloc_inode(target_inode.inode_id() as u32, false)?;
+        Ok(())
+    }
+
+    fn remove_dir_entry(&mut self, dirname: &str, target_inode: &mut Inode) -> VfsResult<()> {
+        let dir_entries = target_inode.inner_read_dir();
+        // 将目标目录下的所有目录项都删除
+        for entry in &dir_entries {
+            if entry.name() == "." || entry.name() == ".." {
+                continue;
+            }
+
+            let mut sub_target_inode = entry.inode();
+            let sub_target_filetype = sub_target_inode.filetype();
+            if sub_target_filetype.is_dir() {
+                target_inode.remove_dir_entry(entry.name(), &mut sub_target_inode)?;
+            } else if sub_target_filetype.is_symlink() {
+                target_inode.remove_symlink_entry(entry.name(), &mut sub_target_inode)?;
+            } else {
+                target_inode.remove_file_entry(entry.name(), &mut sub_target_inode)?;
+            }
+        }
+
+        // remove .
+        target_inode.modify_disk_inode(|ext2_inode| {
+            ext2_inode.dec_hard_links();
+        });
+        // remove ..
+        self.modify_disk_inode(|ext2_inode| {
+            ext2_inode.dec_hard_links();
+        });
+
+        let should_remove = self.unlink(dirname, target_inode);
+        assert!(should_remove);
+
+        // 释放目录
+        target_inode.set_len(0)?;
+        // 释放目标文件对应的 inode, 在 bitmap 上清除位后, 对应的 inode 即不可用
+        self.allocator()
+            .lock()
+            .dealloc_inode(target_inode.inode_id() as u32, true)?;
+
+        Ok(())
     }
 }
