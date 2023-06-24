@@ -3,7 +3,6 @@ mod allocator;
 mod blockgroup;
 mod dir;
 mod disk_inode;
-mod file;
 mod filesystem;
 mod inode;
 mod layout;

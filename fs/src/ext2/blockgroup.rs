@@ -93,9 +93,16 @@ impl Ext2BlockGroupDesc {
         Inode::new(inode_id, address, filetype, layout, allocator)
     }
 
+    #[inline]
+    fn decomposition(&self, bit_idx: u32) -> (usize, usize) {
+        (bit_idx as usize / UNIT_WIDTH, bit_idx as usize % UNIT_WIDTH)
+    }
+
     // 调用该函数必然成功, 所有的检查应该在外部完成
     pub fn alloc_inode(&mut self, is_dir: bool) -> u32 {
         assert_ne!(self.free_inodes_count, 0);
+        // 不要忘记更新 free_inodes_count
+        self.free_inodes_count -= 1;
 
         block_device::modify(self.inode_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
             use core::ops::Not;
@@ -104,8 +111,6 @@ impl Ext2BlockGroupDesc {
                 while neg_bits != 0 {
                     let inner_pos = neg_bits.trailing_zeros() as usize;
                     *bits |= 1 << inner_pos;
-                    // 不要忘记更新 free_inodes_count
-                    self.free_inodes_count -= 1;
 
                     if is_dir {
                         self.dirs_count += 1;
@@ -120,8 +125,18 @@ impl Ext2BlockGroupDesc {
         })
     }
 
-    pub fn dealloc_inode(&mut self, idx: usize, is_dir: bool) {
-        todo!()
+    pub fn dealloc_inode(&mut self, bit_idx: u32, is_dir: bool) {
+        self.free_inodes_count += 1;
+
+        block_device::modify(self.inode_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
+            let (pos, inner_pos) = self.decomposition(bit_idx);
+            assert_ne!(bitmap[pos] & (1u64 << inner_pos), 0);
+            bitmap[pos] -= 1u64 << inner_pos;
+        });
+
+        if is_dir {
+            self.dirs_count -= 1;
+        }
     }
 
     // 调用该函数必然成功, 所有的检查应该在外部完成
@@ -153,23 +168,18 @@ impl Ext2BlockGroupDesc {
         })
     }
 
-    #[inline]
-    fn decomposition(&self, bid: u32) -> (usize, usize) {
-        let inner_bid = bid as usize % block::BITS;
-        (inner_bid / UNIT_WIDTH, inner_bid % UNIT_WIDTH)
-    }
-
-    pub fn dealloc_blocks(&mut self, blocks: &[u32]) {
-        if blocks.is_empty() {
+    // 参数 bg_blocks 只是自己所管辖的 blockgroup 内的相对 block 而不是全局 block_id
+    pub fn dealloc_blocks(&mut self, bg_blocks: &[u32]) {
+        if bg_blocks.is_empty() {
             return;
         }
 
         // 提前批量更新 free_blocks_count
-        self.free_blocks_count += blocks.len() as u16;
+        self.free_blocks_count += bg_blocks.len() as u16;
 
         block_device::modify(self.block_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {
-            for bid in blocks {
-                let (pos, inner_pos) = self.decomposition(*bid);
+            for bg_bid in bg_blocks {
+                let (pos, inner_pos) = self.decomposition(*bg_bid);
                 assert_ne!(bitmap[pos] & (1u64 << inner_pos), 0);
                 bitmap[pos] -= 1u64 << inner_pos;
             }

@@ -156,6 +156,11 @@ impl Ext2Inode {
         self.hard_links += 1;
     }
 
+    pub fn dec_hard_links(&mut self) -> bool {
+        self.hard_links -= 1;
+        self.hard_links == 0
+    }
+
     fn block_id_for(&self, inner_idx: u32) -> u32 {
         let inner_idx = inner_idx as usize;
         if inner_idx < Self::DIRECT_COUNT {

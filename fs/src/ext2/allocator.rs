@@ -48,15 +48,32 @@ impl Ext2Allocator {
         self.superblock.lock().free_inodes_count
     }
 
+    // 将 block_id 分解成 bg 索引和 bg 内偏移
+    fn decomposition_block_id(&self, block_id: u32) -> (usize, usize) {
+        (
+            (block_id / self.blocks_per_group) as usize,
+            (block_id % self.blocks_per_group) as usize,
+        )
+    }
+
+    fn decomposition_inode_id(&self, inode_id: u32) -> (usize, usize) {
+        // 特别注意 inode_id 是从 1 开始的, 转为索引要减一
+        let inode_idx = inode_id - 1;
+        (
+            (inode_idx / self.inodes_per_group) as usize,
+            (inode_idx % self.inodes_per_group) as usize,
+        )
+    }
+
     pub(crate) fn alloc_inode(&mut self, is_dir: bool) -> VfsResult<u32> {
         if self.free_inodes() == 0 {
             return Err(IOError::new(IOErrorKind::NoFreeInodes).into());
         }
 
-        // 有可用 inode
+        // 到此则有可用 inode
         self.dec_free_inode();
         for bg in self.blockgroups.iter() {
-            let mut bg: spin::MutexGuard<'_, Ext2BlockGroupDesc> = bg.lock();
+            let mut bg = bg.lock();
             if bg.free_blocks_count == 0 {
                 continue;
             }
@@ -65,8 +82,16 @@ impl Ext2Allocator {
 
         unreachable!()
     }
-    pub(crate) fn dealloc_inode(&self, block_id: usize, is_dir: bool) -> VfsResult<()> {
-        todo!()
+
+    pub(crate) fn dealloc_inode(&mut self, inode_id: u32, is_dir: bool) -> VfsResult<()> {
+        // 找出属于哪个块组, 块组内偏移多少
+        let (bg_idx, inner_idx) = self.decomposition_inode_id(inode_id);
+
+        let bg = self.blockgroups.get(bg_idx).unwrap();
+        bg.lock().dealloc_inode(inner_idx as u32, is_dir);
+        self.inc_free_inode();
+
+        Ok(())
     }
 
     pub(crate) fn alloc_data(&mut self, needed: usize) -> VfsResult<Vec<u32>> {
@@ -78,7 +103,7 @@ impl Ext2Allocator {
         let mut ret = Vec::new();
         // 需要分别更新 superblock 的 free_blocks 和 blockgroups 的 free_blocks_count
         for bg in self.blockgroups.iter() {
-            let mut bg: spin::MutexGuard<'_, Ext2BlockGroupDesc> = bg.lock();
+            let mut bg = bg.lock();
             // 每一个 bg 都尽力分配 unmet 个块, 返回分配的块数
             let allocated = bg.alloc_blocks(unmet);
             unmet -= allocated.len();
@@ -100,16 +125,22 @@ impl Ext2Allocator {
 
         // 让所有同一 blockgroup 的聚集在连续一块
         freed.sort();
-        // 标出分别属于哪一个 block
-        for idx in &freed {
-            let bg_idx = idx / self.blocks_per_group;
-            slots[bg_idx as usize] += 1;
+
+        // 标出分别属于哪一个 blockgroup
+        for bid in &freed {
+            let bg_idx = (*bid / self.blocks_per_group) as usize;
+            slots[bg_idx] += 1;
         }
 
         let mut offset = 0;
         for (idx, bg) in self.blockgroups.iter().enumerate() {
             let mut bg = bg.lock();
-            bg.dealloc_blocks(&freed[offset..offset + slots[idx]]);
+            let bg_blocks = &freed[offset..offset + slots[idx]]
+                .iter()
+                .map(|&block_id| (block_id % self.blocks_per_group) as u32)
+                .collect::<Vec<_>>();
+
+            bg.dealloc_blocks(bg_blocks);
             offset += slots[idx];
         }
 

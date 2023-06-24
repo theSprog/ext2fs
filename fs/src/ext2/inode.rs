@@ -3,6 +3,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use spin::Mutex;
 
+use crate::block;
 use crate::vfs::error::VfsResult;
 use crate::vfs::meta::{VfsFileType, VfsMetadata, VfsTimeStamp};
 use crate::vfs::VfsInode;
@@ -38,7 +39,7 @@ impl Inode {
             address.offset(),
             |ext2_inode: &mut Ext2Inode| ext2_inode.init(filetype),
         );
-        
+
         Self {
             address,
             inode_id,
@@ -172,18 +173,45 @@ impl Inode {
         Ext2Inode::total_blocks(old_size) - Ext2Inode::total_blocks(new_size)
     }
 
-    pub fn increase_to(&self, new_size: usize) -> VfsResult<()> {
+    fn clear_from(&mut self, start: usize, len: usize) -> VfsResult<()> {
+        assert!(start + len <= self.size());
+        let buf = [0u8; block::SIZE];
+
+        // 剩下要写入的字节数
+        let mut rest = len;
+        let mut offset = start;
+        loop {
+            let write_size = if rest < block::SIZE {
+                let vec = alloc::vec![0u8; rest];
+                self.write_at(offset, &vec)?
+            } else {
+                self.write_at(offset, &buf)?
+            };
+            rest -= write_size;
+            if rest == 0 {
+                break;
+            }
+
+            offset += write_size;
+        }
+        Ok(())
+    }
+
+    pub fn increase_to(&mut self, new_size: usize) -> VfsResult<()> {
         assert!(self.size() < new_size);
+        let cur_offset = self.size();
         let needed_num = Self::blocks_needed(self.size(), new_size);
         let new_blocks = self.allocator.lock().alloc_data(needed_num)?;
         self.modify_disk_inode(|ext2_inode| {
             ext2_inode.increase_to(new_size, new_blocks);
         });
+        // 扩充的空间用 0 填充
+        self.clear_from(cur_offset, new_size - cur_offset)?;
 
         Ok(())
     }
 
-    pub fn decrease_to(&self, new_size: usize) -> VfsResult<()> {
+    pub fn decrease_to(&mut self, new_size: usize) -> VfsResult<()> {
         assert!(
             self.size() > new_size,
             "now_size: {}, new_size: {}",

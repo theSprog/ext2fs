@@ -54,7 +54,7 @@ impl Ext2FileSystem {
 use crate::vfs::FileSystem;
 impl FileSystem for Ext2FileSystem {
     fn read_dir(&self, path: VfsPath) -> VfsResult<Vec<Box<dyn VfsDirEntry>>> {
-        let root_inode = self.root_inode();
+        let root_inode: Inode = self.root_inode();
         let target = root_inode.walk(&path)?;
         target
             .read_dir()
@@ -102,16 +102,22 @@ impl FileSystem for Ext2FileSystem {
         dir_inode.insert_entry(&path, VfsFileType::RegularFile)
     }
 
-    fn remove_file(&self, path: VfsPath) -> VfsResult<()> {
-        todo!()
+    fn create_dir(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>> {
+        let root_inode = self.root_inode();
+        let mut dir_inode = root_inode.walk(&path.parent())?;
+        dir_inode.insert_entry(&path, VfsFileType::Directory)
     }
 
-    fn create_dir(&self, path: VfsPath) -> VfsResult<()> {
-        todo!()
+    fn remove_file(&self, path: VfsPath) -> VfsResult<()> {
+        let root_inode = self.root_inode();
+        let mut dir_inode = root_inode.walk(&path.parent())?;
+        dir_inode.remove_entry(&path)
     }
 
     fn remove_dir(&self, path: VfsPath) -> VfsResult<()> {
-        todo!()
+        let root_inode = self.root_inode();
+        let mut dir_inode = root_inode.walk(&path.parent())?;
+        dir_inode.remove_entry(&path)
     }
 
     fn flush(&self) {

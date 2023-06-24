@@ -166,9 +166,9 @@ impl VfsPermission {
 impl From<u8> for VfsPermission {
     fn from(value: u8) -> Self {
         Self {
-            read: (value & 0x1) != 0,
+            read: (value & 0x4) != 0,
             write: (value & 0x2) != 0,
-            execute: (value & 0x4) != 0,
+            execute: (value & 0x1) != 0,
         }
     }
 }

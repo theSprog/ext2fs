@@ -19,7 +19,7 @@ pub trait FileSystem: Debug + Display + Sync + Send + 'static {
     fn open_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>>;
     fn create_file(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>>;
     fn remove_file(&self, path: VfsPath) -> VfsResult<()>;
-    fn create_dir(&self, path: VfsPath) -> VfsResult<()>;
+    fn create_dir(&self, path: VfsPath) -> VfsResult<Box<dyn VfsInode>>;
     fn remove_dir(&self, path: VfsPath) -> VfsResult<()>;
 
     fn move_file(&self, src: &str, dest: &str) -> VfsResult<()> {

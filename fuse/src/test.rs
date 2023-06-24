@@ -130,11 +130,35 @@ fn test_create_file() {
     for i in 0..11 {
         let path = format!("/new_file{}.c", i);
         let mut file = vfs.create_file(path).unwrap();
-        let permissions = VfsPermissions::new(0b111, 0b101, 0b000);
+        let permissions = VfsPermissions::new(0b110, 0b100, 0b000);
         file.set_permissions(&permissions).unwrap();
     }
 
     vfs.flush();
+}
+
+#[test]
+fn test_create_dir() {
+    let vfs = gen_vfs();
+    for i in 0..11 {
+        let path = format!("/new_dir{}", i);
+        let mut dir = vfs.create_dir(path).unwrap();
+        let permissions = VfsPermissions::new(0b111, 0b101, 0b101);
+        dir.set_permissions(&permissions).unwrap();
+    }
+}
+
+#[test]
+fn test_remove_file() {
+    let vfs = gen_vfs();
+    vfs.remove_file("/hardlink").unwrap();
+    vfs.remove_file("/new_file.c").unwrap();
+}
+
+#[test]
+fn test_remove_dir() {
+    let vfs = gen_vfs();
+    vfs.remove_dir("/new_dir").unwrap();
 }
 
 #[test]

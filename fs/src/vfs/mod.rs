@@ -84,19 +84,19 @@ impl VFS {
         self.fs.create_file(vpath)
     }
 
-    pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
+    pub fn create_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<Box<dyn VfsInode>> {
         let vpath = Self::parse_path(path.as_ref())?;
-        todo!()
+        self.fs.create_dir(vpath)
     }
 
     pub fn remove_file<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
-        todo!()
+        self.fs.remove_file(vpath)
     }
 
     pub fn remove_dir<T: AsRef<str>>(&self, path: T) -> VfsResult<()> {
         let vpath = Self::parse_path(path.as_ref())?;
-        todo!()
+        self.fs.remove_dir(vpath)
     }
 
     pub fn flush(&self) {

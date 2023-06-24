@@ -9,7 +9,7 @@ use alloc::{
 use spin::Mutex;
 
 use crate::{
-    cast_mut, ceil,
+    block, cast, cast_mut, ceil,
     vfs::{
         error::{IOError, IOErrorKind, VfsErrorKind, VfsResult},
         meta::VfsFileType,
@@ -45,14 +45,14 @@ impl Ext2DirEntry {
 
     pub fn build_raw<'a>(
         buffer: &'a mut [u8],
-        filename: &str,
+        entry_name: &str,
         inode_id: usize,
         filetype: VfsFileType,
     ) -> &'a mut Self {
         let entry = cast_mut!(buffer.as_ptr(), Self);
 
         entry.inode_id = inode_id as u32;
-        entry.name_len = filename.len() as u8;
+        entry.name_len = entry_name.len() as u8;
         entry.record_len = ceil!(Self::BARE_LEN + entry.name_len as usize, 4) as u16;
         entry.filetype = match filetype {
             VfsFileType::RegularFile => Self::EXT2_FT_REG_FILE,
@@ -64,8 +64,8 @@ impl Ext2DirEntry {
             VfsFileType::SymbolicLink => Self::EXT2_FT_SYMLINK,
         };
 
-        let name_slice = &mut buffer[Self::BARE_LEN..Self::BARE_LEN + filename.len()];
-        name_slice.copy_from_slice(filename.as_bytes());
+        let name_slice = &mut buffer[Self::BARE_LEN..Self::BARE_LEN + entry_name.len()];
+        name_slice.copy_from_slice(entry_name.as_bytes());
 
         entry
     }
@@ -206,6 +206,10 @@ impl Dir {
         ext2_inode.write_at(0, &self.buffer);
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.buffer.iter().all(|&x| x == 0)
+    }
+
     pub(crate) fn entries(&self) -> Vec<DirEntry> {
         let mut entries = Vec::new();
         for (_, entry) in self.split() {
@@ -247,14 +251,36 @@ impl Dir {
         dst.copy_from_slice(src);
     }
 
-    fn insert_entry(&mut self, filename: &str, inode_id: usize, file_type: VfsFileType) {
-        let mut buffer = [0u8; 4096];
-        let new_entry = Ext2DirEntry::build_raw(&mut buffer, filename, inode_id, file_type);
+    fn insert_entry(&mut self, entry_name: &str, inode_id: usize, filetype: VfsFileType) {
+        let mut buffer = [0u8; block::SIZE];
+        let new_entry = Ext2DirEntry::build_raw(&mut buffer, entry_name, inode_id, filetype);
+
+        if self.is_empty() {
+            new_entry.rec_expand(block::SIZE);
+            self.place_entry(0, new_entry);
+            return;
+        }
+
         for (offset, entry) in self.split_mut() {
             if entry.has_free(new_entry.regular_len()) {
                 let (new_len, freed) = entry.rec_narrow();
                 new_entry.rec_expand(freed);
-                self.place_entry(offset + new_len, &new_entry);
+                self.place_entry(offset + new_len, new_entry);
+                break;
+            }
+        }
+    }
+
+    fn remove_entry(&mut self, entry_name: &str) {
+        let mut offset = 0;
+        while offset < self.buffer.len() {
+            let prev_entry = cast_mut!(self.buffer.as_ptr().add(offset), Ext2DirEntry);
+            offset += prev_entry.record_len();
+            let cur_entry = cast!(self.buffer.as_ptr().add(offset), Ext2DirEntry);
+
+            if cur_entry.name_bytes() == entry_name.as_bytes() {
+                let new_len = prev_entry.record_len() + cur_entry.record_len();
+                prev_entry.rec_expand(new_len);
                 break;
             }
         }
@@ -326,8 +352,8 @@ impl Inode {
         Ok(current_inode)
     }
 
-    fn child_inode(&self, entries: &[DirEntry], next: &str) -> VfsResult<Inode> {
-        let chosen = Self::find_single(entries, next);
+    fn child_inode(&self, entries: &[DirEntry], entry_name: &str) -> VfsResult<Inode> {
+        let chosen = Self::find_single(entries, entry_name);
         if chosen.is_none() {
             return Err(IOError::new(IOErrorKind::NotFound).into());
         }
@@ -338,15 +364,15 @@ impl Inode {
             .with_parent(self.inode_id()))
     }
 
-    fn find_single<'a>(entries: &'a [DirEntry], filename: &str) -> Option<&'a DirEntry> {
+    fn find_single<'a>(entries: &'a [DirEntry], entry_name: &str) -> Option<&'a DirEntry> {
         let mut found_entry = None;
 
         for entry in entries {
-            if entry.name() == filename {
+            if entry.name() == entry_name {
                 if found_entry.is_some() {
                     panic!(
                         "Multiple entries found with filename: {}, entries: {:#?}",
-                        filename, entries
+                        entry_name, entries
                     );
                 }
                 found_entry = Some(entry);
@@ -386,6 +412,29 @@ impl Inode {
         Ok(())
     }
 
+    fn check_valid_remove(&self, path: &VfsPath) -> VfsResult<()> {
+        if !self.is_dir() {
+            return Err(IOError::new(IOErrorKind::NotADirectory)
+                .with_path(path)
+                .into());
+        }
+        let filename = path.last();
+        if filename.is_none() {
+            return Err(VfsErrorKind::InvalidPath(path.to_string()).into());
+        }
+
+        let filename = filename.unwrap();
+        let entries = self.inner_read_dir();
+        let chosen = Self::find_single(&entries, filename);
+
+        // 如果没有该 entry
+        if chosen.is_none() {
+            return Err(IOError::new(IOErrorKind::NotFound).with_path(path).into());
+        }
+
+        Ok(())
+    }
+
     // 该函数不会设置权限
     pub fn insert_entry(
         &mut self,
@@ -393,11 +442,11 @@ impl Inode {
         filetype: VfsFileType,
     ) -> VfsResult<Box<dyn VfsInode>> {
         self.check_valid_insert(path)?;
-        let filename = path.last().unwrap();
+        let entry_name = path.last().unwrap();
 
         match filetype {
-            VfsFileType::RegularFile => self.insert_file_entry(filename),
-            VfsFileType::Directory => self.insert_dir_entry(filename),
+            VfsFileType::RegularFile => self.insert_file_entry(entry_name),
+            VfsFileType::Directory => self.insert_dir_entry(entry_name),
             _ => todo!("why got {}", filetype),
         }
     }
@@ -430,18 +479,43 @@ impl Inode {
     /// 3. 在目录中创建一个目录项
     fn insert_dir_entry(&mut self, dirname: &str) -> VfsResult<Box<dyn VfsInode>> {
         let inode_id = self.allocator().lock().alloc_inode(true)? as usize;
-        let inode = self
-            .layout()
-            .inode_nth(inode_id, self.layout(), self.allocator());
+        let mut dir_inode = self.layout().new_inode_nth(
+            inode_id,
+            VfsFileType::Directory,
+            self.layout(),
+            self.allocator(),
+        );
 
-        // self.modify_disk_inode(|ext2_inode| {
-        //     let mut dir =
-        //         Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
-        //     // 建立 filename -> inode_id 的映射关系
-        //     dir.insert_entry(dirname, inode_id)
-        // });
+        self.modify_disk_inode(|ext2_inode: &mut Ext2Inode| {
+            let mut dir =
+                Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
+            // 建立 entry_name -> inode_id 的映射关系
+            dir.insert_entry(dirname, inode_id, VfsFileType::Directory);
+            // 写回磁盘
+            dir.write_to_disk(ext2_inode);
+        });
 
-        Ok(Box::new(inode))
+        dir_inode.increase_to(block::SIZE)?;
+        dir_inode.modify_disk_inode(|ext2_inode| {
+            let mut dir = Dir::from_inode(inode_id, ext2_inode, self.layout(), self.allocator());
+            // 建立 . -> inode_id 的映射关系
+            dir.insert_entry(".", inode_id, VfsFileType::Directory);
+
+            // 建立 .. -> inode_id 的映射关系
+            dir.insert_entry("..", self.inode_id(), VfsFileType::Directory);
+
+            // 一齐写回磁盘
+            dir.write_to_disk(ext2_inode);
+        });
+
+        dir_inode.modify_disk_inode(|ext2_inode| {
+            ext2_inode.inc_hard_links();
+        });
+        self.modify_disk_inode(|ext2_inode| {
+            ext2_inode.inc_hard_links();
+        });
+
+        Ok(Box::new(dir_inode))
     }
 
     // hardlink 相比于其他 entry 区别: 不会申请 inode
@@ -506,5 +580,53 @@ impl Inode {
             ext2_inode.inc_hard_links();
         });
         Ok(())
+    }
+
+    pub fn remove_entry(&mut self, path: &VfsPath) -> VfsResult<()> {
+        self.check_valid_remove(path)?;
+        let entry_name = path.last().unwrap();
+        let dir_entries = self.inner_read_dir();
+        let mut target_inode = self.child_inode(&dir_entries, entry_name).unwrap();
+
+        match target_inode.filetype() {
+            VfsFileType::RegularFile | VfsFileType::SymbolicLink => {
+                self.remove_file_entry(entry_name, &mut target_inode)
+            }
+            VfsFileType::Directory => self.remove_dir_entry(entry_name, &mut target_inode),
+            filetype => todo!("why got {}", filetype),
+        }
+    }
+
+    fn unlink(&mut self, entry_name: &str, target_inode: &Inode) -> bool {
+        // 删除目录项
+        self.modify_disk_inode(|ext2_inode| {
+            let mut dir =
+                Dir::from_inode(self.inode_id(), ext2_inode, self.layout(), self.allocator());
+            // 建立 filename -> inode_id 的映射关系
+            dir.remove_entry(entry_name);
+            // dir 仅仅是内存中的数据结构, 因此需要写回磁盘
+            dir.write_to_disk(ext2_inode);
+        });
+        // 硬链接减1
+        target_inode.modify_disk_inode(|ext2_inode| ext2_inode.dec_hard_links())
+    }
+
+    /// 扣除 hardlink, 到 0 则释放
+    fn remove_file_entry(&mut self, filename: &str, target_inode: &mut Inode) -> VfsResult<()> {
+        let should_remove = self.unlink(filename, target_inode);
+        if should_remove {
+            // 释放目标文件的存储空间
+            target_inode.set_len(0)?;
+            // 释放目标文件对应的 inode, 在 bitmap 上清除位后, 对应的 inode 即不可用
+            target_inode
+                .allocator()
+                .lock()
+                .dealloc_inode(target_inode.inode_id() as u32, false)?;
+        };
+        Ok(())
+    }
+
+    fn remove_dir_entry(&mut self, dirname: &str, target_inode: &Inode) -> VfsResult<()> {
+        todo!()
     }
 }
