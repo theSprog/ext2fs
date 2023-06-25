@@ -2,12 +2,7 @@ use alloc::string::ToString;
 use bitflags::bitflags;
 use core::fmt::{self, Debug};
 
-use crate::{
-    block, ceil_index,
-    ext2::disk_inode::Ext2Inode,
-    time::{LocalTime, UTC},
-    util,
-};
+use crate::{block, ceil_index, ext2::disk_inode::Ext2Inode, time::LocalTime, util};
 
 pub const EXT2_MAGIC: u16 = 0xef53;
 

@@ -34,7 +34,11 @@ fn test_read_dir() {
     for entry in dir {
         let metadata = entry.inode().metadata();
         let name = if metadata.filetype().is_symlink() {
-            format!("{} -> {}", entry.name(), entry.inode().read_symlink())
+            format!(
+                "{} -> {}",
+                entry.name(),
+                entry.inode().read_symlink().unwrap()
+            )
         } else {
             format!("{}", entry.name())
         };
@@ -127,14 +131,13 @@ fn test_rw() {
 fn test_create_file() {
     let vfs = gen_vfs();
 
-    for i in 0..11 {
-        let path = format!("/new_file{}.c", i);
+    // // generate many file
+    for i in 0..200 {
+        let path = format!("/new_file_longlonglonglonglong{}.c", i);
         let mut file = vfs.create_file(path).unwrap();
         let permissions = VfsPermissions::new(0b110, 0b100, 0b000);
         file.set_permissions(&permissions).unwrap();
     }
-
-    vfs.flush();
 }
 
 #[test]
@@ -151,8 +154,8 @@ fn test_create_dir() {
 #[test]
 fn test_remove_file() {
     let vfs = gen_vfs();
-    vfs.remove_file("/hardlink").unwrap();
-    vfs.remove_file("/new_file.c").unwrap();
+    vfs.remove_file("/new_file_longlonglonglonglong91.c")
+        .unwrap();
 }
 
 #[test]
@@ -164,7 +167,7 @@ fn test_remove_dir() {
 #[test]
 fn test_link() {
     let vfs = gen_vfs();
-    vfs.link("/new_file.c", "/new_link2").unwrap();
+    vfs.link("/new_file.c", "/new_dir").unwrap();
 }
 
 #[test]

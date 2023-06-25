@@ -5,6 +5,7 @@ use spin::Mutex;
 
 use crate::block_device::{self, BlockDevice};
 
+use crate::vfs::error::{IOError, IOErrorKind};
 use crate::vfs::{error::VfsResult, meta::*, VfsDirEntry, VfsInode, VfsPath};
 
 use super::{
@@ -78,8 +79,25 @@ impl FileSystem for Ext2FileSystem {
         // to 必须要存在
         let target = root_inode.walk(&to)?;
         let mut dir_inode = root_inode.walk(&from.parent())?;
+        let child = dir_inode.select_child(from.last().unwrap());
+        if child.is_err() {
+            // child 尚不存在, 需要在当前 dir 下新建
+            dir_inode.insert_hardlink(&from, &to, &target)?;
+        } else {
+            let mut child = child.unwrap();
+            if child.is_dir() {
+                // child 已存在且是 dir, 则在该 dir 下新建同名符号链接
+                let mut new_from = from.clone();
+                new_from.push(to.last().unwrap());
+                child.insert_hardlink(&new_from, &to, &target)?;
+            } else {
+                // child 已存在但不是 dir, 则是 AlreadyExists Error
+                return Err(IOError::new(IOErrorKind::AlreadyExists)
+                    .with_path(&from)
+                    .into());
+            }
+        }
 
-        dir_inode.insert_hardlink(&from, &to, &target)?;
         Ok(())
     }
 

@@ -15,9 +15,9 @@ pub struct VfsError {
 }
 
 impl VfsError {
-    pub fn new(path: String, kind: VfsErrorKind, additional: String) -> VfsError {
+    pub fn new<T: Into<String>>(path: T, kind: VfsErrorKind, additional: String) -> VfsError {
         VfsError {
-            path,
+            path: path.into(),
             additional,
             kind,
         }

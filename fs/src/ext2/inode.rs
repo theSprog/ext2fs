@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use spin::Mutex;
 
 use crate::block;
-use crate::vfs::error::VfsResult;
+use crate::vfs::error::{IOError, IOErrorKind, VfsResult};
 use crate::vfs::meta::{VfsFileType, VfsMetadata, VfsTimeStamp};
 use crate::vfs::VfsInode;
 use crate::{block_device, vfs::meta::VfsPermissions};
@@ -263,7 +263,10 @@ impl VfsInode for Inode {
         Ok(())
     }
 
-    fn read_symlink(&self) -> String {
-        self.read_symlink()
+    fn read_symlink(&self) -> VfsResult<String> {
+        if !self.is_symlink() {
+            return Err(IOError::new(IOErrorKind::NotASymlink).into());
+        }
+        Ok(self.read_symlink())
     }
 }

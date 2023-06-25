@@ -15,5 +15,5 @@ pub trait VfsInode: Debug {
     fn metadata(&self) -> Box<dyn VfsMetadata>;
 
     fn set_permissions(&mut self, permissions: &VfsPermissions) -> VfsResult<()>;
-    fn read_symlink(&self) -> String;
+    fn read_symlink(&self) -> VfsResult<String>;
 }
