@@ -135,7 +135,7 @@ fn test_create_file() {
     for i in 0..200 {
         let path = format!("/new_file_longlonglonglonglong{}.c", i);
         let mut file = vfs.create_file(path).unwrap();
-        let permissions = VfsPermissions::new(0b110, 0b100, 0b000);
+        let permissions = VfsPermissions::new(0o775);
         file.set_permissions(&permissions).unwrap();
     }
 }
@@ -146,7 +146,7 @@ fn test_create_dir() {
     for i in 0..11 {
         let path = format!("/new_dir{}", i);
         let mut dir = vfs.create_dir(path).unwrap();
-        let permissions = VfsPermissions::new(0b111, 0b101, 0b101);
+        let permissions = VfsPermissions::new(0o755);
         dir.set_permissions(&permissions).unwrap();
     }
 }
@@ -180,5 +180,59 @@ fn test_symlink() {
         .unwrap();
 }
 
+fn tttt(vfs: &VFS) {
+    let dir = vfs.read_dir("/").unwrap();
+    println!(
+        "{:>5} {:>11} {:>5} {:>8} {:>5} {:>5} {:>19} {}",
+        "Inode", "Permissions", "Links", "Size", "UID", "GID", "Modified Time", "Name"
+    );
+
+    for entry in dir {
+        let metadata = entry.inode().metadata();
+        let name = if metadata.filetype().is_symlink() {
+            format!(
+                "{} -> {}",
+                entry.name(),
+                entry.inode().read_symlink().unwrap()
+            )
+        } else {
+            format!("{}", entry.name())
+        };
+
+        println!(
+            "{:>5}  {}{} {:>5} {:>8} {:>5} {:>5} {:>19} {}",
+            entry.inode_id(),
+            metadata.filetype(),
+            metadata.permissions(),
+            metadata.hard_links(),
+            metadata.size(),
+            metadata.uid(),
+            metadata.gid(),
+            LocalTime::from_posix(metadata.timestamp().mtime()),
+            name
+        );
+    }
+}
+
 #[test]
-fn test_syntax() {}
+fn test_syntax() {
+    let vfs = gen_vfs();
+    tttt(&vfs);
+    // vfs.read_dir("/").unwrap();
+    let mut inode = vfs.open_file("/new_file.c").unwrap();
+    let mut buffer = [0u8; 4096];
+    for (i, ch) in buffer.iter_mut().enumerate() {
+        *ch = i as u8;
+    }
+
+    let size_mb = 1; // 2MiB
+    let count = (size_mb * 1024 * 1024) / 4096;
+    let mut offset = 0;
+    for _ in 0..count {
+        let write = inode.write_at(offset, &buffer).unwrap();
+        offset += write
+    }
+    tttt(&vfs);
+
+    let mut file = vfs.open_file("/new_dir").unwrap();
+}

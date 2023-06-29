@@ -24,25 +24,27 @@ impl BlockFile {
     }
 }
 
+const SECTOR_SIZE: usize = 512;
+
 impl BlockDevice for BlockFile {
     fn read_block(&self, block_id: usize, buf: &mut [u8]) {
         let mut file = self.0.lock();
-        file.seek(SeekFrom::Start((block_id * block::SIZE) as u64))
+        file.seek(SeekFrom::Start((block_id * SECTOR_SIZE) as u64))
             .expect("Error when seeking!");
         assert_eq!(
             file.read(buf).unwrap(),
-            block::SIZE,
+            SECTOR_SIZE,
             "Not a complete block!"
         );
     }
 
     fn write_block(&self, block_id: usize, buf: &[u8]) {
         let mut file = self.0.lock();
-        file.seek(SeekFrom::Start((block_id * block::SIZE) as u64))
+        file.seek(SeekFrom::Start((block_id * SECTOR_SIZE) as u64))
             .expect("Error when seeking!");
         assert_eq!(
             file.write(buf).unwrap(),
-            block::SIZE,
+            SECTOR_SIZE,
             "Not a complete block!"
         );
     }

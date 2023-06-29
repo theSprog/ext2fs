@@ -34,7 +34,7 @@ pub struct Ext2BlockGroupDesc {
 }
 
 const UNIT_WIDTH: usize = 64;
-type BitmapBlock = [u64; block::SIZE / UNIT_WIDTH];
+type BitmapBlock = [u64; block::BITS / UNIT_WIDTH];
 
 impl Ext2BlockGroupDesc {
     pub(crate) fn find(count: u32) -> Vec<Self> {
@@ -142,6 +142,8 @@ impl Ext2BlockGroupDesc {
     // 调用该函数必然成功, 所有的检查应该在外部完成
     // 在本 blockgroup 中尽力分配 num 个 block, 但是不一定能完成
     pub fn alloc_blocks(&mut self, num: usize) -> Vec<u32> {
+        assert_ne!(num, 0);
+
         let mut vec = Vec::new();
         // 不能提前更新 free_blocks_count 因为不一定有 num 个满足
         block_device::modify(self.block_bitmap_bid(), 0, |bitmap: &mut BitmapBlock| {

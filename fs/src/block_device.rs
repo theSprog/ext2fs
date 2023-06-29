@@ -3,7 +3,7 @@ use core::any::Any;
 use alloc::{collections::BTreeMap, sync::Arc};
 use spin::Mutex;
 
-use crate::{block, cast, cast_mut};
+use crate::{block, cast, cast_mut, SECTOR_SIZE};
 
 pub trait BlockDevice: Send + Sync + Any {
     fn read_block(&self, block_id: usize, buf: &mut [u8]);
@@ -21,7 +21,16 @@ impl BlockCache {
     /// Load a new BlockCache from disk.
     pub fn new(block_id: usize, block_device: Arc<dyn BlockDevice>) -> Self {
         let mut cache = [0u8; block::SIZE];
-        block_device.read_block(block_id, &mut cache);
+        let lower_bid = block_id * block::SECTORS_PER_BLOCK;
+
+        // 底层是以 SECTOR_SIZE 为单位的
+        for i in 0..block::SECTORS_PER_BLOCK {
+            block_device.read_block(
+                lower_bid + i,
+                &mut cache[i * SECTOR_SIZE..(i + 1) * SECTOR_SIZE],
+            );
+        }
+
         Self {
             cache,
             block_id,
@@ -54,7 +63,17 @@ impl BlockCache {
     pub fn sync(&mut self) {
         if self.modified {
             self.modified = false;
-            self.block_device.write_block(self.block_id, &self.cache);
+
+            let lower_bid = self.block_id * block::SECTORS_PER_BLOCK;
+            // 底层是以 SECTOR_SIZE 为单位的
+            for i in 0..block::SECTORS_PER_BLOCK {
+                self.block_device.write_block(
+                    lower_bid + i,
+                    &self.cache[i * SECTOR_SIZE..(i + 1) * SECTOR_SIZE],
+                );
+            }
+
+            // self.block_device.write_block(self.block_id, &self.cache);
         }
     }
 

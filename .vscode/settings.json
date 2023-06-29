@@ -3,5 +3,5 @@
         "./fs/Cargo.toml",
         "./fuse/Cargo.toml",
     ],
-    "rust-analyzer.showUnlinkedFileNotification": false
+    "rust-analyzer.showUnlinkedFileNotification": false,
 }

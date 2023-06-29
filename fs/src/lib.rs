@@ -13,11 +13,15 @@ pub mod vfs;
 
 mod util;
 
+const SECTOR_SIZE: usize = 512;
+
 pub mod block {
+    use super::SECTOR_SIZE;
     pub const SIZE: usize = 4096;
     pub const LOG_SIZE: usize = 12;
     pub const BITS: usize = SIZE * 8;
     pub const MASK: usize = SIZE - 1;
+    pub const SECTORS_PER_BLOCK: usize = SIZE / SECTOR_SIZE;
 
     pub type DataBlock = [u8; SIZE];
     pub type BitmapBlock = [u64; SIZE / 64];
