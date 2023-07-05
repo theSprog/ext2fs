@@ -73,6 +73,12 @@ impl Ext2Inode {
     pub const DOUBLE_BOUND: usize = Self::INDIRECT_BOUND + Self::DOUBLE_COUNT;
 
     pub fn init(&mut self, filetype: VfsFileType) {
+        unsafe {
+            let ptr = self as *mut _ as *mut u8;
+            let size = core::mem::size_of::<Self>();
+            core::ptr::write_bytes(ptr, 0, size);
+        }
+
         self.set_filetype(&filetype);
         if filetype.is_symlink() {
             self.set_permissions(&VfsPermissions::all());
@@ -122,6 +128,7 @@ impl Ext2Inode {
         if self.filetype().is_file() {
             assert_eq!(self.size_high, 0);
         }
+        self.sectors_count = (Self::total_blocks(size) * block::SECTORS_PER_BLOCK) as u32;
         self.size_low as usize
     }
 

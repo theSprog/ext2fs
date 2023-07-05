@@ -146,7 +146,7 @@ fn test_create_dir() {
     for i in 0..11 {
         let path = format!("/new_dir{}", i);
         let mut dir = vfs.create_dir(path).unwrap();
-        let permissions = VfsPermissions::new(0o755);
+        let permissions = VfsPermissions::new(0o644);
         dir.set_permissions(&permissions).unwrap();
     }
 }

@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{block, cast, cast_mut, SECTOR_SIZE};
@@ -11,7 +11,7 @@ pub trait BlockDevice: Send + Sync + Any {
 }
 
 pub struct BlockCache {
-    cache: [u8; block::SIZE],
+    cache: Vec<u8>,
     block_id: usize,
     block_device: Arc<dyn BlockDevice>,
     modified: bool,
@@ -20,7 +20,7 @@ pub struct BlockCache {
 impl BlockCache {
     /// Load a new BlockCache from disk.
     pub fn new(block_id: usize, block_device: Arc<dyn BlockDevice>) -> Self {
-        let mut cache = [0u8; block::SIZE];
+        let mut cache = alloc::vec![0u8; block::SIZE];
         let lower_bid = block_id * block::SECTORS_PER_BLOCK;
 
         // 底层是以 SECTOR_SIZE 为单位的
